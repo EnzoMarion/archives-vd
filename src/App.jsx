@@ -41,7 +41,7 @@ const formatDisplayDate = (dateStr) => {
     return `${d}/${m}/${y}`;
 };
 
-// Normalisation pseudo : accents + case-insensitive [web:45][web:48][web:51]
+// accents + casse insensibles
 const normalizeName = (str = '') =>
     str
         .normalize('NFD')
@@ -49,7 +49,7 @@ const normalizeName = (str = '') =>
         .toLowerCase()
         .trim();
 
-// Stats globales pour Hall of Fame / Profil joueur
+// Stats globales
 const buildGlobalStats = (sessionsObj) => {
     const sessions = Object.values(sessionsObj).sort((a, b) => a.id.localeCompare(b.id));
     const memberTotals = {};
@@ -99,7 +99,7 @@ const buildGlobalStats = (sessionsObj) => {
     };
 };
 
-// --- UI DE BASE ---
+// --- UI ---
 const Card = ({ children, className = "" }) => (
     <div className={`bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden ${className}`}>
         {children}
@@ -160,24 +160,20 @@ const Podium = ({ members, totalPoints }) => {
     );
 };
 
-// --- Connexion par pseudo avec suggestions ---
-const MemberLogin = ({ currentMember, onLogin, onLogout, hasStats, allMembers }) => {
-    const [input, setInput] = useState(currentMember || '');
+// --- Barre de recherche joueur ---
+const PlayerSearch = ({ allMembers, onSelectPlayer, hasStats }) => {
+    const [input, setInput] = useState('');
     const [suggestions, setSuggestions] = useState([]);
-
-    useEffect(() => {
-        setInput(currentMember || '');
-    }, [currentMember]);
 
     const handleChange = (value) => {
         setInput(value);
-        if (!value || !allMembers.length) {
+        if (!value || !hasStats || !allMembers.length) {
             setSuggestions([]);
             return;
         }
         const norm = normalizeName(value);
         const filtered = allMembers
-            .filter((m) => normalizeName(m).startsWith(norm)) // prefix accent/case-insensitive [web:46][web:52]
+            .filter((m) => normalizeName(m).startsWith(norm))
             .slice(0, 8);
         setSuggestions(filtered);
     };
@@ -185,60 +181,40 @@ const MemberLogin = ({ currentMember, onLogin, onLogout, hasStats, allMembers })
     const handleSelect = (name) => {
         setInput(name);
         setSuggestions([]);
-        onLogin(name);
+        onSelectPlayer(name);
     };
 
-    if (!hasStats) {
-        return (
-            <div className="text-[10px] text-slate-600 uppercase font-black">
-                En attente de données...
-            </div>
-        );
-    }
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!input) return;
+        handleSelect(input);
+    };
 
     return (
-        <div className="relative">
-            {currentMember ? (
-                <div className="flex items-center gap-2">
-          <span className="text-[10px] text-slate-400 uppercase font-black">
-            Connecté :
-          </span>
-                    <span className="px-2 py-1 bg-slate-900 rounded-lg text-xs font-black text-white uppercase">
-            {currentMember}
-          </span>
-                    <button
-                        onClick={onLogout}
-                        className="text-[10px] text-slate-500 hover:text-red-400 uppercase font-black"
-                    >
-                        Déconnexion
-                    </button>
+        <form className="relative" onSubmit={handleSubmit}>
+            <input
+                type="text"
+                placeholder={hasStats ? "Rechercher un membre..." : "Chargement..."}
+                value={input}
+                onChange={(e) => handleChange(e.target.value)}
+                className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-[11px] text-slate-200 outline-none focus:border-blue-500 min-w-[200px]"
+                disabled={!hasStats}
+            />
+            {suggestions.length > 0 && (
+                <div className="absolute right-0 mt-1 w-60 bg-slate-900 border border-slate-800 rounded-xl shadow-xl z-50 max-h-60 overflow-y-auto">
+                    {suggestions.map((name) => (
+                        <button
+                            key={name}
+                            type="button"
+                            onClick={() => handleSelect(name)}
+                            className="w-full text-left px-3 py-1.5 text-[11px] text-slate-200 hover:bg-slate-800"
+                        >
+                            {name}
+                        </button>
+                    ))}
                 </div>
-            ) : (
-                <>
-                    <input
-                        type="text"
-                        placeholder="Pseudo membre"
-                        value={input}
-                        onChange={(e) => handleChange(e.target.value)}
-                        className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-blue-500"
-                    />
-                    {suggestions.length > 0 && (
-                        <div className="absolute right-0 mt-1 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-xl z-50 max-h-60 overflow-y-auto">
-                            {suggestions.map((name) => (
-                                <button
-                                    key={name}
-                                    type="button"
-                                    onClick={() => handleSelect(name)}
-                                    className="w-full text-left px-3 py-1.5 text-[11px] text-slate-200 hover:bg-slate-800"
-                                >
-                                    {name}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </>
             )}
-        </div>
+        </form>
     );
 };
 
@@ -552,7 +528,7 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
     );
 };
 
-const HallOfFamePage = ({ globalStats, onBack }) => {
+const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer }) => {
     const { hallOfFame, records } = globalStats;
     const top10 = hallOfFame.slice(0, 10);
     const absoluteRecord = records[0];
@@ -621,7 +597,10 @@ const HallOfFamePage = ({ globalStats, onBack }) => {
                       {i + 1}
                     </span>
                                 </td>
-                                <td className="px-6 py-4 text-white font-black uppercase italic group-hover:text-blue-400">
+                                <td
+                                    className="px-6 py-4 text-white font-black uppercase italic group-hover:text-blue-400 cursor-pointer"
+                                    onClick={() => onSelectPlayer && onSelectPlayer(m.name)}
+                                >
                                     {m.name}
                                 </td>
                                 <td className="px-8 py-4 text-right text-cyan-400 font-mono font-black">
@@ -789,11 +768,6 @@ export default function App() {
     const [sessions, setSessions] = useState({});
     const [user, setUser] = useState(null);
 
-    const [currentMember, setCurrentMember] = useState(() => {
-        if (typeof window === 'undefined') return null;
-        return localStorage.getItem('lh_currentMember') || null;
-    });
-
     // Auth anonyme
     useEffect(() => {
         const initAuth = async () => {
@@ -823,26 +797,16 @@ export default function App() {
         return () => unsub();
     }, [user]);
 
-    // Stats globales mémoïsées (fix ESLint set-state-in-effect) [web:25]
+    // Stats globales mémoïsées (fix ESLint)
     const globalStats = useMemo(() => {
         if (!sessions || Object.keys(sessions).length === 0) return null;
         return buildGlobalStats(sessions);
     }, [sessions]);
 
-    // Liste de tous les pseudos
     const allMembersList = useMemo(() => {
         if (!globalStats) return [];
         return Object.values(globalStats.memberTotals).map((m) => m.name);
     }, [globalStats]);
-
-    // Persistance pseudo membre [web:31][web:34]
-    useEffect(() => {
-        if (!currentMember) {
-            localStorage.removeItem('lh_currentMember');
-        } else {
-            localStorage.setItem('lh_currentMember', currentMember);
-        }
-    }, [currentMember]);
 
     const handleImport = async (s) => {
         if (!user) return;
@@ -884,39 +848,20 @@ export default function App() {
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
-                        <MemberLogin
-                            currentMember={currentMember}
-                            hasStats={!!globalStats}
+                        <PlayerSearch
                             allMembers={allMembersList}
-                            onLogin={(name) => {
-                                setCurrentMember(name);
-                                if (globalStats) {
-                                    const key = normalizeName(name);
-                                    if (!globalStats.memberTotals[key]) {
-                                        alert("Ce pseudo n'existe pas encore dans les archives.");
-                                    }
+                            hasStats={!!globalStats}
+                            onSelectPlayer={(name) => {
+                                if (!globalStats) return;
+                                const key = normalizeName(name);
+                                if (!globalStats.memberTotals[key]) {
+                                    alert("Ce membre n'existe pas encore dans les archives.");
+                                    return;
                                 }
-                            }}
-                            onLogout={() => {
-                                setCurrentMember(null);
+                                setSelectedPlayer(globalStats.memberTotals[key].name);
+                                setView('player');
                             }}
                         />
-                        {currentMember && globalStats && (
-                            <button
-                                onClick={() => {
-                                    const key = normalizeName(currentMember);
-                                    if (!globalStats.memberTotals[key]) {
-                                        alert("Profil introuvable pour ce pseudo.");
-                                        return;
-                                    }
-                                    setSelectedPlayer(currentMember);
-                                    setView('player');
-                                }}
-                                className="text-[10px] text-cyan-400 hover:text-cyan-300 uppercase font-black"
-                            >
-                                Mon profil
-                            </button>
-                        )}
                         <div
                             className={`w-2.5 h-2.5 rounded-full ${
                                 user
@@ -963,6 +908,12 @@ export default function App() {
                     <HallOfFamePage
                         globalStats={globalStats}
                         onBack={() => setView('home')}
+                        onSelectPlayer={(name) => {
+                            const key = normalizeName(name);
+                            if (!globalStats.memberTotals[key]) return;
+                            setSelectedPlayer(globalStats.memberTotals[key].name);
+                            setView('player');
+                        }}
                     />
                 )}
                 {view === 'player' && selectedPlayer && globalStats && (
