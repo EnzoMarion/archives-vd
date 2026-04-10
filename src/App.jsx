@@ -41,7 +41,6 @@ const formatDisplayDate = (dateStr) => {
     return `${d}/${m}/${y}`;
 };
 
-// accents + casse insensibles
 const normalizeName = (str = '') =>
     str
         .normalize('NFD')
@@ -56,6 +55,9 @@ const buildGlobalStats = (sessionsObj) => {
 
     sessions.forEach((s) => {
         s.members.forEach((m) => {
+            if (!m.value || m.value <= 0) return;
+            if (normalizeName(m.name) === 'autre') return;
+
             const key = normalizeName(m.name);
             if (!memberTotals[key]) {
                 memberTotals[key] = {
@@ -81,6 +83,8 @@ const buildGlobalStats = (sessionsObj) => {
     const records = [];
     sessions.forEach((s) => {
         s.members.forEach((m) => {
+            if (!m.value || m.value <= 0) return;
+            if (normalizeName(m.name) === 'autre') return;
             records.push({
                 name: m.name,
                 value: m.value,
@@ -160,7 +164,7 @@ const Podium = ({ members, totalPoints }) => {
     );
 };
 
-// --- Barre de recherche joueur ---
+// --- Recherche joueur ---
 const PlayerSearch = ({ allMembers, onSelectPlayer, hasStats }) => {
     const [input, setInput] = useState('');
     const [suggestions, setSuggestions] = useState([]);
@@ -278,6 +282,50 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
     const [endDate, setEndDate] = useState("");
     const [totalPoints, setTotalPoints] = useState("");
     const [error, setError] = useState("");
+    const [vdCountForAnalysis, setVdCountForAnalysis] = useState(5);
+
+    // Analyse des contributions sur les N dernières VD
+    const contributionAnalysis = useMemo(() => {
+        const values = Object.values(sessions);
+        if (!values.length) return null;
+
+        const sorted = [...values].sort((a, b) => b.id.localeCompare(a.id));
+        const slice = sorted.slice(0, vdCountForAnalysis);
+
+        const acc = {};
+
+        slice.forEach((s) => {
+            s.members.forEach((m) => {
+                if (!m.value || m.value <= 0) return;
+                if (normalizeName(m.name) === 'autre') return;
+                const key = normalizeName(m.name);
+                if (!acc[key]) {
+                    acc[key] = { key, name: m.name, sumPct: 0, count: 0 };
+                }
+                acc[key].sumPct += m.value;
+                acc[key].count += 1;
+            });
+        });
+
+        // "Toujours là" sur cette fenêtre : présent sur chaque VD
+        const alwaysHere = Object.values(acc).filter((m) => m.count === slice.length);
+        if (!alwaysHere.length) return null;
+
+        const withAvg = alwaysHere.map((m) => ({
+            ...m,
+            avgPct: m.sumPct / m.count,
+        }));
+
+        const bottom5 = withAvg
+            .sort((a, b) => a.avgPct - b.avgPct)
+            .slice(0, 5);
+
+        return {
+            totalSessions: slice.length,
+            playersCount: withAvg.length,
+            bottom5,
+        };
+    }, [sessions, vdCountForAnalysis]);
 
     if (!isAuthenticated) {
         return (
@@ -288,7 +336,7 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
                     <form
                         onSubmit={(e) => {
                             e.preventDefault();
-                            passcode === "coucudu26" ? setIsAuthenticated(true) : setError("Invalide");
+                            passcode === "coucu" ? setIsAuthenticated(true) : setError("Invalide");
                         }}
                         className="space-y-4"
                     >
@@ -320,8 +368,23 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
             >
                 <ChevronLeft className="w-4 h-4" /> Annuler
             </button>
+
             <Card className="p-6 md:p-8 space-y-6 shadow-2xl">
-                <h2 className="text-3xl font-black text-white italic uppercase">PANNEAU DE GESTION CLOUD</h2>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <h2 className="text-3xl font-black text-white italic uppercase">PANNEAU DE GESTION CLOUD</h2>
+                    <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                        <span className="uppercase font-black">Dernières VD analysées</span>
+                        <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={vdCountForAnalysis}
+                            onChange={(e) => setVdCountForAnalysis(Number(e.target.value) || 1)}
+                            className="w-16 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-blue-500 text-right"
+                        />
+                    </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1.5">
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Date de Début</label>
@@ -349,6 +412,7 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
                         className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none text-sm md:col-span-2"
                     />
                 </div>
+
                 <textarea
                     rows="6"
                     value={csvData}
@@ -356,14 +420,22 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
                     placeholder="guild,LogHorizon,628120&#10;member,Buer,11.7"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono text-xs outline-none focus:border-blue-500"
                 ></textarea>
+
                 <button
                     onClick={() => {
                         const guilds = [], members = [];
                         csvData.split('\n').forEach(l => {
                             const p = l.split(',').map(s => s.trim());
                             if (p.length < 3) return;
-                            if (p[0] === 'guild') guilds.push({ name: p[1], points: parseInt(p[2]), color: '#3b82f6' });
-                            else if (p[0] === 'member') members.push({ name: p[1], value: parseFloat(p[2]) });
+                            if (p[0] === 'guild') {
+                                guilds.push({ name: p[1], points: parseInt(p[2]), color: '#3b82f6' });
+                            } else if (p[0] === 'member') {
+                                const name = p[1];
+                                const value = parseFloat(p[2]);
+                                if (!value || value <= 0) return;
+                                if (normalizeName(name) === 'autre') return;
+                                members.push({ name, value });
+                            }
                         });
                         const dStart = formatDisplayDate(startDate);
                         const dEnd = formatDisplayDate(endDate);
@@ -381,6 +453,49 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
                     <Plus className="w-5 h-5" /> Publier sur la base
                 </button>
             </Card>
+
+            {contributionAnalysis && (
+                <Card className="p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-black text-white uppercase tracking-widest">
+                            Plus faibles contributeurs
+                        </h3>
+                        <span className="text-[10px] text-slate-400 uppercase font-black">
+              Sur {contributionAnalysis.totalSessions} dernières VD
+            </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 uppercase font-black">
+                        Présents sur toutes ces VD : {contributionAnalysis.playersCount} joueurs
+                    </p>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-950/50 text-slate-500 text-[9px] font-black uppercase tracking-widest font-mono">
+                            <tr>
+                                <th className="px-4 py-2">Membre</th>
+                                <th className="px-4 py-2 text-right">Moyenne %</th>
+                                <th className="px-4 py-2 text-right">Présence</th>
+                            </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/50">
+                            {contributionAnalysis.bottom5.map((m) => (
+                                <tr key={m.key}>
+                                    <td className="px-4 py-2 text-white font-bold uppercase italic">
+                                        {m.name}
+                                    </td>
+                                    <td className="px-4 py-2 text-right text-cyan-400 font-mono">
+                                        {m.avgPct.toFixed(2)}%
+                                    </td>
+                                    <td className="px-4 py-2 text-right text-slate-500 font-mono text-[11px]">
+                                        {m.count} / {contributionAnalysis.totalSessions} VD
+                                    </td>
+                                </tr>
+                            ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
+            )}
+
             <div className="space-y-2">
                 {Object.values(sessions).map(s => (
                     <div key={s.id} className="flex items-center justify-between p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
@@ -414,7 +529,7 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                 <Card className="p-4 bg-gradient-to-br from-blue-600/10 to-transparent">
-                    <p className="text-slate-500 text-[8px] uppercase font-black">Score Guilde</p>
+                    <p className="text-slate-500 text-[8px] uppercase font-black">Score guilde</p>
                     <p className="text-xl md:text-3xl font-black text-white italic tracking-tighter">{totalLog.toLocaleString()}</p>
                 </Card>
                 <Card className="p-4 bg-gradient-to-br from-yellow-500/10 to-transparent">
@@ -433,7 +548,7 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <Card className="p-6 md:p-8">
                     <h3 className="text-xl font-black text-white uppercase italic mb-8 flex items-center gap-2">
-                        <BarChart3 className="w-5 h-5 text-blue-500" /> Puissance Guildes
+                        <BarChart3 className="w-5 h-5 text-blue-500" /> Puissance guildes
                     </h3>
                     <div className="h-[350px]">
                         <ResponsiveContainer width="100%" height="100%">
@@ -452,7 +567,7 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
                 </Card>
                 <Card className="p-6 md:p-8">
                     <h3 className="text-xl font-black text-white uppercase italic mb-8 flex items-center gap-2">
-                        <Zap className="w-5 h-5 text-yellow-500" /> Parts Membres
+                        <Zap className="w-5 h-5 text-yellow-500" /> Parts membres
                     </h3>
                     <div className="h-[350px]">
                         <ResponsiveContainer width="100%" height="100%">
@@ -490,8 +605,8 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
                     <tr>
                         <th className="px-6 py-4">Rang</th>
                         <th className="px-6 py-4">Membre</th>
-                        <th className="px-8 py-4 text-right">Part</th>
-                        <th className="px-8 py-4 text-right">Points Est.</th>
+                        <th className="px-8 py-4 text-right">Part (%)</th>
+                        <th className="px-8 py-4 text-right">Part du score guilde</th>
                     </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50 text-xs">
@@ -636,6 +751,11 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
             ? first5[first5.length - 1].value - first5[0].value
             : 0;
 
+    const totalEstimatedPoints = player.history.reduce(
+        (sum, h) => sum + Math.round((h.totalPointsLog * h.value) / 100),
+        0
+    );
+
     return (
         <div className="space-y-8 py-8 px-4">
             <button
@@ -665,10 +785,18 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
                     </Card>
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
-                            Total cumulé
+                            % cumulé sur VD
                         </p>
                         <p className="text-lg font-black text-cyan-400 text-right">
                             {player.totalPct.toFixed(1)}%
+                        </p>
+                    </Card>
+                    <Card className="px-4 py-3">
+                        <p className="text-[8px] uppercase font-black text-slate-500">
+                            Points théoriques cumulés
+                        </p>
+                        <p className="text-lg font-black text-violet-400 text-right">
+                            {totalEstimatedPoints.toLocaleString()}
                         </p>
                     </Card>
                     <Card className="px-4 py-3">
@@ -699,7 +827,28 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
                             <XAxis dataKey="name" stroke="#475569" fontSize={10} />
                             <YAxis yAxisId="left" stroke="#22d3ee" fontSize={10} />
                             <YAxis yAxisId="right" orientation="right" stroke="#a855f7" fontSize={10} />
-                            <Tooltip content={<CustomTooltip />} />
+                            <Tooltip
+                                content={({ active, payload, label }) => {
+                                    if (!active || !payload || !payload.length) return null;
+                                    return (
+                                        <div className="bg-slate-950/95 border-2 border-blue-500/50 p-3 rounded-xl shadow-2xl backdrop-blur-md z-50">
+                                            <p className="text-white font-black uppercase italic tracking-wider text-xs mb-1">
+                                                {label}
+                                            </p>
+                                            {payload.map((entry) => (
+                                                <p
+                                                    key={entry.dataKey}
+                                                    className="text-xs text-slate-200 font-mono"
+                                                >
+                                                    {entry.dataKey === 'percent'
+                                                        ? `Part de la session : ${entry.value}%`
+                                                        : `Part du score guilde : ${entry.value.toLocaleString()} pts`}
+                                                </p>
+                                            ))}
+                                        </div>
+                                    );
+                                }}
+                            />
                             <Legend />
                             <Line
                                 yAxisId="left"
@@ -717,7 +866,7 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
                                 stroke="#a855f7"
                                 strokeWidth={2}
                                 dot={{ r: 3 }}
-                                name="Points estimés"
+                                name="Part du score guilde"
                             />
                         </LineChart>
                     </ResponsiveContainer>
@@ -736,7 +885,7 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
                         <tr>
                             <th className="px-6 py-3">Session</th>
                             <th className="px-6 py-3 text-right">Part (%)</th>
-                            <th className="px-6 py-3 text-right">Points estimés</th>
+                            <th className="px-6 py-3 text-right">Part du score guilde</th>
                         </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/50 text-xs">
@@ -768,7 +917,6 @@ export default function App() {
     const [sessions, setSessions] = useState({});
     const [user, setUser] = useState(null);
 
-    // Auth anonyme
     useEffect(() => {
         const initAuth = async () => {
             try {
@@ -782,7 +930,6 @@ export default function App() {
         return () => unsubscribe();
     }, []);
 
-    // Sync sessions Firestore
     useEffect(() => {
         if (!user) return;
         const unsub = onSnapshot(
@@ -797,7 +944,6 @@ export default function App() {
         return () => unsub();
     }, [user]);
 
-    // Stats globales mémoïsées (fix ESLint)
     const globalStats = useMemo(() => {
         if (!sessions || Object.keys(sessions).length === 0) return null;
         return buildGlobalStats(sessions);
@@ -843,7 +989,6 @@ export default function App() {
                 LOG HORIZON
               </span>
                             <span className="block text-[8px] font-black uppercase tracking-widest text-blue-500 leading-none mt-1">
-                Command Center
               </span>
                         </div>
                     </div>
