@@ -48,6 +48,26 @@ const normalizeName = (str = '') =>
         .toLowerCase()
         .trim();
 
+// Patterns de phrases (constants -> pas recréés dans les hooks)
+const SOLO_PATTERNS = [
+    (a) => `${a} est une machine (des fois).`,
+    (a) => `${a} ne lâche jamais rien en VD.`,
+    (a) => `${a} devrait être payé pour jouer comme ça.`,
+    (a) => `${a} porte la guilde sur son dos.`,
+    (a) => `Personne ne sait comment ${a} fait, mais ça marche.`,
+    (a) => `${a} transforme chaque VD en highlight.`,
+];
+
+const DUO_PATTERNS = [
+    (a, b) => `${a} est meilleur que ${b}.`,
+    (a, b) => `${a} carry pendant que ${b} fait semblant de jouer.`,
+    (a, b) => `${a} et ${b} sont un duo criminel en VD.`,
+    (a, b) => `Quand ${a} et ${b} sont connectés, les autres peuvent AFK.`,
+    (a, b) => `${a} met la pression, ${b} ramasse les points.`,
+];
+
+const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
 // Stats globales
 const buildGlobalStats = (sessionsObj) => {
     const sessions = Object.values(sessionsObj).sort((a, b) => a.id.localeCompare(b.id));
@@ -223,14 +243,14 @@ const PlayerSearch = ({ allMembers, onSelectPlayer, hasStats }) => {
 };
 
 // --- PAGES ---
-const HomePage = ({ sessions, onSelectSession, onOpenAdmin, onOpenHall }) => (
+const HomePage = ({ sessions, onSelectSession, onOpenAdmin, onOpenHall, randomMessage }) => (
     <div className="space-y-8 md:space-y-12 py-6 md:py-12 px-4 animate-in fade-in slide-in-from-bottom-4">
         <div className="text-center space-y-6">
             <h1 className="text-5xl md:text-8xl font-black text-white tracking-tighter italic uppercase">
                 Archives <span className="text-blue-600">VD</span>
             </h1>
             <p className="text-slate-400 text-sm md:text-lg max-w-2xl mx-auto leading-relaxed">
-                Données de la guilde synchronisées en temps réel.
+                {randomMessage || "Bienvenue dans les archives de la guilde."}
             </p>
             <div className="flex flex-col items-center gap-3">
                 <button
@@ -284,7 +304,6 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
     const [error, setError] = useState("");
     const [vdCountForAnalysis, setVdCountForAnalysis] = useState(5);
 
-    // Analyse des contributions sur les N dernières VD
     const contributionAnalysis = useMemo(() => {
         const values = Object.values(sessions);
         if (!values.length) return null;
@@ -307,7 +326,6 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
             });
         });
 
-        // "Toujours là" sur cette fenêtre : présent sur chaque VD
         const alwaysHere = Object.values(acc).filter((m) => m.count === slice.length);
         if (!alwaysHere.length) return null;
 
@@ -547,7 +565,7 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <Card className="p-6 md:p-8">
-                    <h3 className="text-xl font-black text-white uppercase italic mb-8 flex items-center gap-2">
+                    <h3 className="text-xl font-black text-white uppercase italic mb-8 flex itemsCenter gap-2">
                         <BarChart3 className="w-5 h-5 text-blue-500" /> Puissance guildes
                     </h3>
                     <div className="h-[350px]">
@@ -916,6 +934,7 @@ export default function App() {
     const [selectedPlayer, setSelectedPlayer] = useState(null);
     const [sessions, setSessions] = useState({});
     const [user, setUser] = useState(null);
+    const [randomHomeMessage, setRandomHomeMessage] = useState("");
 
     useEffect(() => {
         const initAuth = async () => {
@@ -943,6 +962,46 @@ export default function App() {
         );
         return () => unsub();
     }, [user]);
+
+    // Message fun basé sur la dernière VD
+    useEffect(() => {
+        const values = Object.values(sessions);
+        if (!values.length) {
+            setRandomHomeMessage("");
+            return;
+        }
+
+        const latest = [...values].sort((a, b) => b.id.localeCompare(a.id))[0];
+        const members = latest.members || [];
+        if (!members.length) {
+            setRandomHomeMessage("");
+            return;
+        }
+
+        const names = members.map((m) => m.name);
+        const shuffled = [...names].sort(() => Math.random() - 0.5);
+        const hasAtLeastTwo = shuffled.length >= 2;
+
+        let msg = "";
+        if (!hasAtLeastTwo) {
+            const a = shuffled[0];
+            const pattern = pickRandom(SOLO_PATTERNS);
+            msg = pattern(a);
+        } else {
+            const a = shuffled[0];
+            const b = shuffled[1];
+            const useDuo = Math.random() < 0.5;
+            if (useDuo) {
+                const pattern = pickRandom(DUO_PATTERNS);
+                msg = pattern(a, b);
+            } else {
+                const pattern = pickRandom(SOLO_PATTERNS);
+                msg = pattern(a);
+            }
+        }
+
+        setRandomHomeMessage(msg);
+    }, [sessions]);
 
     const globalStats = useMemo(() => {
         if (!sessions || Object.keys(sessions).length === 0) return null;
@@ -989,6 +1048,7 @@ export default function App() {
                 LOG HORIZON
               </span>
                             <span className="block text-[8px] font-black uppercase tracking-widest text-blue-500 leading-none mt-1">
+                {/* vide comme demandé */}
               </span>
                         </div>
                     </div>
@@ -1027,6 +1087,7 @@ export default function App() {
                         }}
                         onOpenAdmin={() => setView('admin')}
                         onOpenHall={() => setView('hall')}
+                        randomMessage={randomHomeMessage}
                     />
                 )}
                 {view === 'stats' && (
