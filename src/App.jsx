@@ -75,7 +75,8 @@ const buildGlobalStats = (sessionsObj) => {
 
     sessions.forEach((s) => {
         s.members.forEach((m) => {
-            if (!m.value || m.value <= 0) return;
+            // Modif ici pour accepter 0
+            if (m.value === undefined || m.value === null) return;
             if (normalizeName(m.name) === 'autre') return;
 
             const key = normalizeName(m.name);
@@ -84,14 +85,17 @@ const buildGlobalStats = (sessionsObj) => {
                     key,
                     name: m.name,
                     totalPct: 0,
+                    totalPoints: 0, // Ajout des points bruts
                     history: []
                 };
             }
             memberTotals[key].totalPct += m.value;
+            memberTotals[key].totalPoints += (m.points || 0); // Accumulation points bruts
             memberTotals[key].history.push({
                 sessionId: s.id,
                 label: s.shortLabel || s.label,
                 value: m.value,
+                points: m.points || 0, // Stockage points bruts dans l'historique
                 totalPointsLog: s.totalPointsLog,
             });
         });
@@ -103,11 +107,12 @@ const buildGlobalStats = (sessionsObj) => {
     const records = [];
     sessions.forEach((s) => {
         s.members.forEach((m) => {
-            if (!m.value || m.value <= 0) return;
+            if (m.value === undefined || m.value === null) return;
             if (normalizeName(m.name) === 'autre') return;
             records.push({
                 name: m.name,
                 value: m.value,
+                points: m.points || 0,
                 sessionId: s.id,
                 label: s.shortLabel || s.label,
             });
@@ -152,7 +157,9 @@ const CustomTooltip = ({ active, payload }) => {
 const Podium = ({ members, totalPoints }) => {
     const top3 = useMemo(() => members?.slice(0, 3) || [], [members]);
     if (top3.length < 3) return null;
-    const getPoints = (val) => Math.round((totalPoints * val) / 100).toLocaleString();
+
+    // Correction ici : On utilise m.points s'il existe pour éviter les erreurs d'arrondi
+    const formatPts = (m) => m.points ? m.points.toLocaleString() : Math.round((totalPoints * m.value) / 100).toLocaleString();
 
     return (
         <div className="space-y-4 md:space-y-0 md:flex md:items-end md:justify-center md:gap-4 max-w-4xl mx-auto py-8 px-4">
@@ -161,14 +168,14 @@ const Podium = ({ members, totalPoints }) => {
                 <div className="w-full bg-slate-400/5 border-t-4 border-slate-400 p-4 rounded-2xl md:rounded-b-none text-center shadow-xl border border-slate-800">
                     <Medal className="w-6 h-6 mx-auto text-slate-400 mb-2" />
                     <p className="text-white font-black uppercase italic truncate">{top3[1].name}</p>
-                    <p className="text-slate-500 font-mono text-[10px]">{getPoints(top3[1].value)} pts</p>
+                    <p className="text-slate-500 font-mono text-[10px]">{formatPts(top3[1])} pts</p>
                 </div>
             </div>
             <div className="order-1 md:order-2 flex flex-col items-center gap-2 md:w-1/3 scale-105 z-10">
                 <Crown className="w-8 h-8 text-yellow-500 animate-bounce" />
                 <div className="w-full bg-yellow-500/10 border-t-4 border-yellow-500 p-6 rounded-2xl md:rounded-b-none md:rounded-t-3xl text-center shadow-2xl border border-slate-800">
                     <p className="text-xl md:text-2xl font-black text-white uppercase italic truncate">{top3[0].name}</p>
-                    <p className="text-yellow-500 font-mono text-sm font-bold">{getPoints(top3[0].value)} pts</p>
+                    <p className="text-yellow-500 font-mono text-sm font-bold">{formatPts(top3[0])} pts</p>
                     <div className="bg-yellow-500 text-black text-[9px] font-black py-1 px-3 rounded-full uppercase tracking-widest inline-block mx-auto mt-2">Champion</div>
                 </div>
             </div>
@@ -177,7 +184,7 @@ const Podium = ({ members, totalPoints }) => {
                 <div className="w-full bg-orange-600/5 border-t-4 border-orange-600 p-4 rounded-2xl md:rounded-b-none text-center shadow-xl border border-slate-800">
                     <Award className="w-6 h-6 mx-auto text-orange-600 mb-1" />
                     <p className="text-white font-black uppercase italic truncate">{top3[2].name}</p>
-                    <p className="text-slate-500 font-mono text-[10px]">{getPoints(top3[2].value)} pts</p>
+                    <p className="text-slate-500 font-mono text-[10px]">{formatPts(top3[2])} pts</p>
                 </div>
             </div>
         </div>
@@ -315,7 +322,7 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
 
         slice.forEach((s) => {
             s.members.forEach((m) => {
-                if (!m.value || m.value <= 0) return;
+                if (m.value === undefined || m.value === null) return; // Modif ici
                 if (normalizeName(m.name) === 'autre') return;
                 const key = normalizeName(m.name);
                 if (!acc[key]) {
@@ -422,9 +429,10 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
                             className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none text-sm focus:border-blue-500"
                         />
                     </div>
+                    {/* totalPoints n'est plus obligatoire si on met les points bruts dans le CSV */}
                     <input
                         type="number"
-                        placeholder="Points Totaux LogHorizon"
+                        placeholder="Points Totaux LogHorizon (Auto si guild dans CSV)"
                         value={totalPoints}
                         onChange={e => setTotalPoints(e.target.value)}
                         className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none text-sm md:col-span-2"
@@ -435,35 +443,50 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
                     rows="6"
                     value={csvData}
                     onChange={e => setCsvData(e.target.value)}
-                    placeholder="guild,LogHorizon,628120&#10;member,Buer,11.7"
+                    placeholder="guild,LogHorizon,1822608&#10;member,Buer,150432"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono text-xs outline-none focus:border-blue-500"
                 ></textarea>
 
                 <button
                     onClick={() => {
-                        const guilds = [], members = [];
+                        const guilds = [];
+                        const membersRaw = [];
+
                         csvData.split('\n').forEach(l => {
                             const p = l.split(',').map(s => s.trim());
                             if (p.length < 3) return;
+
                             if (p[0] === 'guild') {
-                                guilds.push({ name: p[1], points: parseInt(p[2]), color: '#3b82f6' });
+                                guilds.push({ name: p[1], points: parseInt(p[2], 10), color: '#3b82f6' });
                             } else if (p[0] === 'member') {
                                 const name = p[1];
-                                const value = parseFloat(p[2]);
-                                if (!value || value <= 0) return;
+                                const points = parseInt(p[2], 10);
+                                // On accepte le 0 ici
                                 if (normalizeName(name) === 'autre') return;
-                                members.push({ name, value });
+                                membersRaw.push({ name, points });
                             }
                         });
+
+                        const totalGuildPoints = guilds.find(g => g.name === 'LogHorizon')?.points || parseInt(totalPoints, 10) || 0;
+
+                        const members = membersRaw
+                            .map(m => ({
+                                name: m.name,
+                                points: m.points, // On stocke les points réels ici
+                                value: parseFloat(((m.points / totalGuildPoints) * 100).toFixed(2)),
+                            }))
+                            .sort((a, b) => b.points - a.points);
+
                         const dStart = formatDisplayDate(startDate);
                         const dEnd = formatDisplayDate(endDate);
+
                         onImport({
                             id: "session_" + endDate.split('-').join('_'),
                             label: `${dStart} au ${dEnd}`,
                             shortLabel: `VD ${dEnd}`,
-                            totalPointsLog: parseInt(totalPoints),
+                            totalPointsLog: totalGuildPoints,
                             guilds,
-                            members
+                            members,
                         });
                     }}
                     className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase py-4 rounded-xl shadow-lg flex items-center justify-center gap-2"
@@ -624,7 +647,7 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
                         <th className="px-6 py-4">Rang</th>
                         <th className="px-6 py-4">Membre</th>
                         <th className="px-8 py-4 text-right">Part (%)</th>
-                        <th className="px-8 py-4 text-right">Part du score guilde</th>
+                        <th className="px-8 py-4 text-right">Points Réels</th>
                     </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50 text-xs">
@@ -649,7 +672,8 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
                                 {m.value}%
                             </td>
                             <td className="px-8 py-4 text-right text-slate-500 font-mono italic">
-                                {Math.round((data.totalPointsLog * m.value) / 100).toLocaleString()}{' '}
+                                {/* Modif ici pour utiliser les points stockés ou recalculés */}
+                                {(m.points || Math.round((data.totalPointsLog * m.value) / 100)).toLocaleString()}{' '}
                                 <span className="text-[8px] opacity-40 uppercase ml-1">Pts</span>
                             </td>
                         </tr>
@@ -714,7 +738,7 @@ const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer }) => {
                         <tr>
                             <th className="px-6 py-4">Rang</th>
                             <th className="px-6 py-4">Membre</th>
-                            <th className="px-8 py-4 text-right">Pourcentage total</th>
+                            <th className="px-8 py-4 text-right">Points Totaux</th>
                             <th className="px-8 py-4 text-right">Sessions</th>
                         </tr>
                         </thead>
@@ -737,7 +761,7 @@ const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer }) => {
                                     {m.name}
                                 </td>
                                 <td className="px-8 py-4 text-right text-cyan-400 font-mono font-black">
-                                    {m.totalPct.toFixed(1)}%
+                                    {(m.totalPoints || 0).toLocaleString()} pts
                                 </td>
                                 <td className="px-8 py-4 text-right text-slate-500 font-mono">
                                     {m.history.length}
@@ -760,7 +784,8 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
     const chartData = player.history.map((h) => ({
         name: h.label,
         percent: h.value,
-        estimatedPoints: Math.round((h.totalPointsLog * h.value) / 100),
+        points: h.points,
+        estimatedPoints: h.points || Math.round((h.totalPointsLog * h.value) / 100),
     }));
 
     const first5 = player.history.slice(-5);
@@ -769,8 +794,8 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
             ? first5[first5.length - 1].value - first5[0].value
             : 0;
 
-    const totalEstimatedPoints = player.history.reduce(
-        (sum, h) => sum + Math.round((h.totalPointsLog * h.value) / 100),
+    const totalPoints = player.totalPoints || player.history.reduce(
+        (sum, h) => sum + (h.points || Math.round((h.totalPointsLog * h.value) / 100)),
         0
     );
 
@@ -811,10 +836,10 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
                     </Card>
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
-                            Points théoriques cumulés
+                            Points réels cumulés
                         </p>
                         <p className="text-lg font-black text-violet-400 text-right">
-                            {totalEstimatedPoints.toLocaleString()}
+                            {totalPoints.toLocaleString()}
                         </p>
                     </Card>
                     <Card className="px-4 py-3">
@@ -903,7 +928,7 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
                         <tr>
                             <th className="px-6 py-3">Session</th>
                             <th className="px-6 py-3 text-right">Part (%)</th>
-                            <th className="px-6 py-3 text-right">Part du score guilde</th>
+                            <th className="px-6 py-3 text-right">Points Réels</th>
                         </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/50 text-xs">
@@ -914,7 +939,7 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
                                     {h.value}%
                                 </td>
                                 <td className="px-6 py-3 text-right text-slate-400 font-mono">
-                                    {Math.round((h.totalPointsLog * h.value) / 100).toLocaleString()}{' '}
+                                    {(h.points || Math.round((h.totalPointsLog * h.value) / 100)).toLocaleString()}{' '}
                                     <span className="text-[8px] uppercase opacity-40">Pts</span>
                                 </td>
                             </tr>
