@@ -8,7 +8,7 @@ import {
 } from 'recharts';
 import {
     Trophy, ChevronLeft, Sword,
-    Zap, Crown, BarChart3, Shield, ChevronRight, Plus, Trash2, Lock, Medal, Award
+    Zap, Crown, BarChart3, Shield, ChevronRight, Plus, Trash2, Lock, Medal, Award, Bot, Pickaxe
 } from 'lucide-react';
 
 // --- CONFIG FIREBASE ---
@@ -28,6 +28,52 @@ const auth = getAuth(app);
 const appId = "archives-vd-loghorizon";
 
 // --- CONSTS / UTILS ---
+const CURRENT_SEASON = 's4';
+const LEGACY_SEASON = 's3';
+
+const SEASON_THEMES = {
+    s3: {
+        id: 's3',
+        short: 'S3',
+        name: 'Saison 3',
+        fullName: 'Saison 3 — Archéologues & Dinosaures',
+        description: 'Les archives fossiles de la guilde, entre reliques et scores préhistoriques.',
+        icon: Pickaxe,
+        guildColor: '#f59e0b',
+        primaryText: 'text-amber-400',
+        secondaryText: 'text-emerald-400',
+        softBg: 'bg-amber-500/10',
+        softBorder: 'border-amber-500/30',
+        strongBorder: 'border-amber-500',
+        buttonClass: 'bg-amber-500 hover:bg-amber-400 text-black',
+        secondaryButtonClass: 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/20',
+        titleGradient: 'from-amber-400 via-yellow-300 to-emerald-400',
+        panelGradient: 'from-amber-500/12 via-emerald-500/6 to-transparent',
+        chipClass: 'bg-amber-500/10 text-amber-300 border border-amber-500/20',
+        emptyLabel: 'Aucune VD archéologique enregistrée.',
+    },
+    s4: {
+        id: 's4',
+        short: 'S4',
+        name: 'Saison 4',
+        fullName: 'Saison 4 — Robots & Ingénieurs',
+        description: 'Une nouvelle ère mécanique pour les archives de la guilde.',
+        icon: Bot,
+        guildColor: '#22d3ee',
+        primaryText: 'text-cyan-400',
+        secondaryText: 'text-fuchsia-400',
+        softBg: 'bg-cyan-500/10',
+        softBorder: 'border-cyan-500/30',
+        strongBorder: 'border-cyan-500',
+        buttonClass: 'bg-cyan-500 hover:bg-cyan-400 text-slate-950',
+        secondaryButtonClass: 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/20',
+        titleGradient: 'from-cyan-400 via-sky-300 to-fuchsia-400',
+        panelGradient: 'from-cyan-500/12 via-fuchsia-500/6 to-transparent',
+        chipClass: 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20',
+        emptyLabel: 'Aucune VD robotique enregistrée pour le moment.',
+    }
+};
+
 const MEMBER_COLORS = [
     '#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6',
     '#ec4899', '#06b6d4', '#f97316', '#14b8a6', '#6366f1',
@@ -35,11 +81,24 @@ const MEMBER_COLORS = [
     '#818cf8', '#34d399', '#60a5fa', '#f472b6', '#fb923c'
 ];
 
+const getSeasonConfig = (seasonId) => SEASON_THEMES[seasonId] || SEASON_THEMES[LEGACY_SEASON];
+const getSessionSeason = (session = {}) => session.season || LEGACY_SEASON;
+
 const formatDisplayDate = (dateStr) => {
     if (!dateStr) return "";
     const [y, m, d] = dateStr.split('-');
     return `${d}/${m}/${y}`;
 };
+
+const extractSessionSortKey = (session = {}) => {
+    if (session?.endDate) return session.endDate;
+    const match = session?.id?.match(/(\d{4})_(\d{2})_(\d{2})$/);
+    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+    return '0000-00-00';
+};
+
+const sortSessionsAsc = (a, b) => extractSessionSortKey(a).localeCompare(extractSessionSortKey(b));
+const sortSessionsDesc = (a, b) => extractSessionSortKey(b).localeCompare(extractSessionSortKey(a));
 
 const normalizeName = (str = '') =>
     str
@@ -48,34 +107,34 @@ const normalizeName = (str = '') =>
         .toLowerCase()
         .trim();
 
-// Patterns de phrases (constants -> pas recréés dans les hooks)
 const SOLO_PATTERNS = [
-    (a) => `${a} est une machine (des fois).`,
-    (a) => `${a} ne lâche jamais rien en VD.`,
-    (a) => `${a} devrait être payé pour jouer comme ça.`,
-    (a) => `${a} porte la guilde sur son dos.`,
-    (a) => `Personne ne sait comment ${a} fait, mais ça marche.`,
-    (a) => `${a} transforme chaque VD en highlight.`,
+    (a) => `${a} a réveillé un dinosaure de la saison 3.`,
+    (a) => `${a} a laissé des traces fossiles dans les archives.`,
+    (a) => `${a} a calibré les robots de la saison 4.`,
+    (a) => `${a} ne bug jamais. Enfin presque.`,
+    (a) => `${a} transforme chaque VD en rapport d’ingénierie.`,
+    (a) => `${a} mérite un labo secret rien qu’à lui.`,
 ];
 
 const DUO_PATTERNS = [
-    (a, b) => `${a} est meilleur que ${b}.`,
-    (a, b) => `${a} carry pendant que ${b} fait semblant de jouer.`,
-    (a, b) => `${a} et ${b} sont un duo criminel en VD.`,
-    (a, b) => `Quand ${a} et ${b} sont connectés, les autres peuvent AFK.`,
-    (a, b) => `${a} met la pression, ${b} ramasse les points.`,
+    (a, b) => `${a} et ${b} sont un duo illégal en VD.`,
+    (a, b) => `${a} construit, ${b} termine le chantier.`,
+    (a, b) => `${a} déterre les points, ${b} les empile.`,
+    (a, b) => `${a} et ${b} ont probablement un plan secret.`,
+    (a, b) => `Quand ${a} et ${b} jouent, les robots applaudissent.`,
 ];
 
 const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-// Stats globales
-const buildGlobalStats = (sessionsObj) => {
-    const sessions = Object.values(sessionsObj).sort((a, b) => a.id.localeCompare(b.id));
+const buildGlobalStats = (sessionsObj, seasonFilter = 'all') => {
+    const sessions = Object.values(sessionsObj)
+        .filter((s) => seasonFilter === 'all' || getSessionSeason(s) === seasonFilter)
+        .sort(sortSessionsAsc);
+
     const memberTotals = {};
 
     sessions.forEach((s) => {
         s.members.forEach((m) => {
-            // Modif ici pour accepter 0
             if (m.value === undefined || m.value === null) return;
             if (normalizeName(m.name) === 'autre') return;
 
@@ -85,24 +144,27 @@ const buildGlobalStats = (sessionsObj) => {
                     key,
                     name: m.name,
                     totalPct: 0,
-                    totalPoints: 0, // Ajout des points bruts
+                    totalPoints: 0,
                     history: []
                 };
             }
+
             memberTotals[key].totalPct += m.value;
-            memberTotals[key].totalPoints += (m.points || 0); // Accumulation points bruts
+            memberTotals[key].totalPoints += (m.points || 0);
             memberTotals[key].history.push({
                 sessionId: s.id,
+                season: getSessionSeason(s),
+                seasonLabel: getSeasonConfig(getSessionSeason(s)).fullName,
                 label: s.shortLabel || s.label,
                 value: m.value,
-                points: m.points || 0, // Stockage points bruts dans l'historique
+                points: m.points || 0,
                 totalPointsLog: s.totalPointsLog,
+                endDate: extractSessionSortKey(s),
             });
         });
     });
 
-    const hallOfFame = Object.values(memberTotals)
-        .sort((a, b) => b.totalPct - a.totalPct);
+    const hallOfFame = Object.values(memberTotals).sort((a, b) => b.totalPct - a.totalPct);
 
     const records = [];
     sessions.forEach((s) => {
@@ -114,6 +176,7 @@ const buildGlobalStats = (sessionsObj) => {
                 value: m.value,
                 points: m.points || 0,
                 sessionId: s.id,
+                season: getSessionSeason(s),
                 label: s.shortLabel || s.label,
             });
         });
@@ -130,18 +193,61 @@ const buildGlobalStats = (sessionsObj) => {
 
 // --- UI ---
 const Card = ({ children, className = "" }) => (
-    <div className={`bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden ${className}`}>
+    <div className={`bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden ${className}`}>
         {children}
     </div>
 );
+
+const SeasonBadge = ({ seasonId, className = "" }) => {
+    const theme = getSeasonConfig(seasonId);
+    const Icon = theme.icon;
+
+    return (
+        <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${theme.chipClass} ${className}`}>
+            <Icon className="w-3 h-3" />
+            {theme.short}
+        </span>
+    );
+};
+
+const SeasonTabs = ({ value, onChange, counts }) => {
+    const options = [
+        { id: 'all', label: 'Toutes', count: counts.all },
+        { id: 's4', label: 'S4', count: counts.s4 },
+        { id: 's3', label: 'S3', count: counts.s3 },
+    ];
+
+    return (
+        <div className="flex flex-wrap items-center gap-2">
+            {options.map((opt) => {
+                const isActive = value === opt.id;
+                const theme = opt.id === 'all' ? getSeasonConfig(CURRENT_SEASON) : getSeasonConfig(opt.id);
+
+                return (
+                    <button
+                        key={opt.id}
+                        onClick={() => onChange(opt.id)}
+                        className={`px-4 py-2 rounded-xl border text-[11px] font-black uppercase tracking-widest transition-all ${
+                            isActive
+                                ? `${theme.buttonClass} border-transparent shadow-lg`
+                                : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                        }`}
+                    >
+                        {opt.label} <span className="opacity-70">({opt.count})</span>
+                    </button>
+                );
+            })}
+        </div>
+    );
+};
 
 const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
         const data = payload[0].payload;
         return (
-            <div className="bg-slate-950/95 border-2 border-blue-500/50 p-3 rounded-xl shadow-2xl backdrop-blur-md z-50">
+            <div className="bg-slate-950/95 border-2 border-cyan-500/40 p-3 rounded-xl shadow-2xl backdrop-blur-md z-50">
                 <p className="text-white font-black uppercase italic tracking-wider text-xs mb-1 flex items-center gap-2">
-                    <Zap className="w-3 h-3 text-blue-400" />
+                    <Zap className="w-3 h-3 text-cyan-400" />
                     {data.name || payload[0].name}
                 </p>
                 <div className="h-px bg-slate-800 my-2 w-full"></div>
@@ -154,11 +260,12 @@ const CustomTooltip = ({ active, payload }) => {
     return null;
 };
 
-const Podium = ({ members, totalPoints }) => {
+const Podium = ({ members, totalPoints, seasonId }) => {
     const top3 = useMemo(() => members?.slice(0, 3) || [], [members]);
+    const theme = getSeasonConfig(seasonId);
+
     if (top3.length < 3) return null;
 
-    // Correction ici : On utilise m.points s'il existe pour éviter les erreurs d'arrondi
     const formatPts = (m) => m.points ? m.points.toLocaleString() : Math.round((totalPoints * m.value) / 100).toLocaleString();
 
     return (
@@ -171,14 +278,18 @@ const Podium = ({ members, totalPoints }) => {
                     <p className="text-slate-500 font-mono text-[10px]">{formatPts(top3[1])} pts</p>
                 </div>
             </div>
+
             <div className="order-1 md:order-2 flex flex-col items-center gap-2 md:w-1/3 scale-105 z-10">
-                <Crown className="w-8 h-8 text-yellow-500 animate-bounce" />
-                <div className="w-full bg-yellow-500/10 border-t-4 border-yellow-500 p-6 rounded-2xl md:rounded-b-none md:rounded-t-3xl text-center shadow-2xl border border-slate-800">
+                <Crown className={`w-8 h-8 ${theme.primaryText} animate-bounce`} />
+                <div className={`w-full ${theme.softBg} border-t-4 ${theme.strongBorder} p-6 rounded-2xl md:rounded-b-none md:rounded-t-3xl text-center shadow-2xl border border-slate-800`}>
                     <p className="text-xl md:text-2xl font-black text-white uppercase italic truncate">{top3[0].name}</p>
-                    <p className="text-yellow-500 font-mono text-sm font-bold">{formatPts(top3[0])} pts</p>
-                    <div className="bg-yellow-500 text-black text-[9px] font-black py-1 px-3 rounded-full uppercase tracking-widest inline-block mx-auto mt-2">Champion</div>
+                    <p className={`${theme.primaryText} font-mono text-sm font-bold`}>{formatPts(top3[0])} pts</p>
+                    <div className={`${theme.buttonClass} text-[9px] font-black py-1 px-3 rounded-full uppercase tracking-widest inline-block mx-auto mt-2`}>
+                        Champion
+                    </div>
                 </div>
             </div>
+
             <div className="order-3 md:order-3 flex flex-col items-center gap-2 md:w-1/3">
                 <div className="text-orange-600 font-black italic text-[10px] uppercase tracking-widest text-center">3rd PLACE</div>
                 <div className="w-full bg-orange-600/5 border-t-4 border-orange-600 p-4 rounded-2xl md:rounded-b-none text-center shadow-xl border border-slate-800">
@@ -228,7 +339,7 @@ const PlayerSearch = ({ allMembers, onSelectPlayer, hasStats }) => {
                 placeholder={hasStats ? "Rechercher un membre..." : "Chargement..."}
                 value={input}
                 onChange={(e) => handleChange(e.target.value)}
-                className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-[11px] text-slate-200 outline-none focus:border-blue-500 min-w-[200px]"
+                className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-[11px] text-slate-200 outline-none focus:border-cyan-500 min-w-[200px]"
                 disabled={!hasStats}
             />
             {suggestions.length > 0 && (
@@ -250,58 +361,182 @@ const PlayerSearch = ({ allMembers, onSelectPlayer, hasStats }) => {
 };
 
 // --- PAGES ---
-const HomePage = ({ sessions, onSelectSession, onOpenAdmin, onOpenHall, randomMessage }) => (
-    <div className="space-y-8 md:space-y-12 py-6 md:py-12 px-4 animate-in fade-in slide-in-from-bottom-4">
-        <div className="text-center space-y-6">
-            <h1 className="text-5xl md:text-8xl font-black text-white tracking-tighter italic uppercase">
-                Archives <span className="text-blue-600">VD</span>
-            </h1>
-            <p className="text-slate-400 text-sm md:text-lg max-w-2xl mx-auto leading-relaxed">
-                {randomMessage || "Bienvenue dans les archives de la guilde."}
-            </p>
-            <div className="flex flex-col items-center gap-3">
-                <button
-                    onClick={onOpenAdmin}
-                    className="flex items-center gap-2 mx-auto bg-slate-800 hover:bg-slate-700 text-slate-300 px-6 py-2 rounded-xl transition-all font-bold uppercase text-[10px] tracking-widest border border-slate-700"
-                >
-                    <Lock className="w-3.5 h-3.5" /> Administration
-                </button>
-                <button
-                    onClick={onOpenHall}
-                    className="flex items-center gap-2 mx-auto text-yellow-400 text-[10px] font-black uppercase tracking-widest hover:text-yellow-300"
-                >
-                    <Crown className="w-3.5 h-3.5" /> Hall of Fame
-                </button>
+const HomePage = ({
+                      sessions,
+                      selectedSeason,
+                      onSeasonChange,
+                      onSelectSession,
+                      onOpenAdmin,
+                      onOpenHall,
+                      randomMessage
+                  }) => {
+    const activeTheme = getSeasonConfig(selectedSeason === 'all' ? CURRENT_SEASON : selectedSeason);
+
+    const sessionList = Object.values(sessions)
+        .filter((session) => selectedSeason === 'all' || getSessionSeason(session) === selectedSeason)
+        .sort(sortSessionsDesc);
+
+    const counts = {
+        all: Object.values(sessions).length,
+        s3: Object.values(sessions).filter((s) => getSessionSeason(s) === 's3').length,
+        s4: Object.values(sessions).filter((s) => getSessionSeason(s) === 's4').length,
+    };
+
+    return (
+        <div className="space-y-8 md:space-y-12 py-6 md:py-12 px-4 animate-in fade-in slide-in-from-bottom-4">
+            <Card className={`relative overflow-hidden p-6 md:p-8 lg:p-10 bg-gradient-to-br ${activeTheme.panelGradient}`}>
+                <div className="absolute inset-0 pointer-events-none">
+                    <div className="absolute -top-16 right-0 h-40 w-40 rounded-full bg-cyan-400/10 blur-3xl"></div>
+                    <div className="absolute bottom-0 left-0 h-32 w-32 rounded-full bg-fuchsia-500/10 blur-3xl"></div>
+                </div>
+
+                <div className="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+                    <div className="space-y-5 max-w-4xl min-w-0">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <SeasonBadge seasonId={CURRENT_SEASON} />
+                            <span className="text-[10px] font-black uppercase tracking-[0.35em] text-slate-500">
+                                Log Horizon
+                            </span>
+                        </div>
+
+                        <div className="space-y-4 min-w-0">
+                            <h1
+                                className="font-black uppercase italic tracking-[-0.06em] leading-[0.9] text-white break-words"
+                                style={{ fontSize: 'clamp(2.8rem, 9vw, 6.8rem)' }}
+                            >
+                                ARCHIVES <span className={`bg-gradient-to-r ${activeTheme.titleGradient} bg-clip-text text-transparent`}>VD</span>
+                            </h1>
+
+                            <p className="text-slate-300 text-base md:text-lg max-w-2xl leading-relaxed">
+                                {selectedSeason === 'all'
+                                    ? 'Les saisons de guerre de la guilde, réunies dans une seule archive.'
+                                    : activeTheme.description}
+                            </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-3 pt-2">
+                            <button
+                                onClick={onOpenHall}
+                                className={`flex items-center gap-2 px-6 py-3 rounded-xl transition-all font-bold uppercase text-[10px] tracking-widest ${activeTheme.buttonClass}`}
+                            >
+                                <Crown className="w-4 h-4" /> Hall of Fame
+                            </button>
+
+                            <button
+                                onClick={onOpenAdmin}
+                                className={`flex items-center gap-2 px-6 py-3 rounded-xl transition-all font-bold uppercase text-[10px] tracking-widest ${activeTheme.secondaryButtonClass}`}
+                            >
+                                <Lock className="w-4 h-4" /> Administration
+                            </button>
+                        </div>
+
+                        {randomMessage && (
+                            <p className="text-slate-500 text-sm italic max-w-2xl pt-2">
+                                {randomMessage}
+                            </p>
+                        )}
+                    </div>
+
+                    <div className="w-full lg:max-w-sm">
+                        <Card className="p-5 bg-slate-950/55 border-slate-800 backdrop-blur-sm">
+                            <div className="flex items-center justify-between mb-4">
+                                <p className="text-[10px] uppercase tracking-[0.35em] font-black text-slate-500">
+                                    Saison active
+                                </p>
+                                <SeasonBadge seasonId={CURRENT_SEASON} />
+                            </div>
+
+                            <div className="space-y-2">
+                                <p className="text-white font-black uppercase italic text-lg">
+                                    {getSeasonConfig(CURRENT_SEASON).fullName}
+                                </p>
+                                <p className="text-slate-400 text-sm leading-relaxed">
+                                    {CURRENT_SEASON === 's4'
+                                        ? 'Nouvelle esthétique, nouvelles archives, même domination.'
+                                        : 'Les anciennes campagnes restent gravées dans les archives.'}
+                                </p>
+                            </div>
+                        </Card>
+                    </div>
+                </div>
+            </Card>
+
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-[0.35em] font-black text-slate-500">
+                        Filtrer les archives
+                    </p>
+                    <h2 className="text-xl md:text-2xl font-black italic uppercase text-white">
+                        {selectedSeason === 'all' ? 'Toutes les saisons' : activeTheme.fullName}
+                    </h2>
+                </div>
+                <SeasonTabs value={selectedSeason} onChange={onSeasonChange} counts={counts} />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+                {sessionList.map((session) => {
+                    const sessionSeason = getSessionSeason(session);
+                    const theme = getSeasonConfig(sessionSeason);
+                    const Icon = theme.icon;
+
+                    return (
+                        <button
+                            key={session.id}
+                            onClick={() => onSelectSession(session.id)}
+                            className="group relative bg-slate-900 border border-slate-800 p-6 rounded-3xl hover:border-cyan-500 transition-all text-left shadow-2xl overflow-hidden active:scale-95"
+                        >
+                            <Trophy className="absolute -bottom-4 -right-4 w-24 h-24 text-white/5 group-hover:text-cyan-500/10 transition-colors rotate-12" />
+                            <div className="relative z-10 space-y-4">
+                                <div className="flex items-center justify-between gap-3">
+                                    <SeasonBadge seasonId={sessionSeason} />
+                                    <Icon className={`w-5 h-5 ${theme.primaryText}`} />
+                                </div>
+
+                                <h3 className="text-xl md:text-2xl font-black text-white group-hover:text-cyan-400 uppercase italic truncate">
+                                    {session.shortLabel}
+                                </h3>
+
+                                <div className="space-y-1">
+                                    <p className="text-slate-400 font-bold text-[11px]">{session.label}</p>
+                                    <p className="text-slate-600 font-mono text-[10px] uppercase">
+                                        Fin : {formatDisplayDate(extractSessionSortKey(session))}
+                                    </p>
+                                </div>
+
+                                <div className="flex items-center justify-between pt-4 border-t border-slate-800/50">
+                                    <span className={`text-[10px] font-black uppercase tracking-widest ${theme.primaryText}`}>
+                                        {session.guilds[0]?.name || 'LogHorizon'}
+                                    </span>
+                                    <ChevronRight className={`w-5 h-5 ${theme.primaryText} group-hover:translate-x-1 transition-transform`} />
+                                </div>
+                            </div>
+                        </button>
+                    );
+                })}
+
+                {sessionList.length === 0 && (
+                    <div className="col-span-full">
+                        <Card className={`p-10 text-center ${activeTheme.softBg} ${activeTheme.softBorder}`}>
+                            <div className="space-y-3">
+                                <div className="flex justify-center">
+                                    <SeasonBadge seasonId={selectedSeason === 'all' ? CURRENT_SEASON : selectedSeason} />
+                                </div>
+                                <p className="text-white font-black uppercase italic tracking-widest">
+                                    {selectedSeason === 'all' ? 'Aucune session enregistrée' : activeTheme.emptyLabel}
+                                </p>
+                                <p className="text-slate-500 text-sm">
+                                    Commence par importer une nouvelle VD depuis l’administration.
+                                </p>
+                            </div>
+                        </Card>
+                    </div>
+                )}
             </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
-            {Object.values(sessions).sort((a, b) => b.id.localeCompare(a.id)).map((session) => (
-                <button
-                    key={session.id}
-                    onClick={() => onSelectSession(session.id)}
-                    className="group relative bg-slate-900 border border-slate-800 p-6 rounded-3xl hover:border-blue-500 transition-all text-left shadow-2xl overflow-hidden active:scale-95"
-                >
-                    <Trophy className="absolute -bottom-4 -right-4 w-24 h-24 text-white/5 group-hover:text-blue-500/10 transition-colors rotate-12" />
-                    <div className="relative z-10 space-y-4">
-                        <h3 className="text-xl md:text-2xl font-black text-white group-hover:text-blue-400 uppercase italic truncate">{session.shortLabel}</h3>
-                        <p className="text-slate-500 font-bold text-[10px]">{session.label}</p>
-                        <div className="flex items-center justify-between pt-4 border-t border-slate-800/50 text-blue-500">
-                            <span className="text-[10px] font-black uppercase tracking-widest">{session.guilds[0]?.name}</span>
-                            <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                        </div>
-                    </div>
-                </button>
-            ))}
-            {Object.values(sessions).length === 0 && (
-                <div className="col-span-full py-20 text-center text-slate-700 uppercase font-black italic tracking-widest">
-                    Aucune session en ligne
-                </div>
-            )}
-        </div>
-    </div>
-);
+    );
+};
 
-const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
+const AdminPage = ({ onImport, sessions, onDelete, onBack, currentSeason }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [passcode, setPasscode] = useState("");
     const [csvData, setCsvData] = useState("");
@@ -309,20 +544,25 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
     const [endDate, setEndDate] = useState("");
     const [totalPoints, setTotalPoints] = useState("");
     const [error, setError] = useState("");
+    const [success, setSuccess] = useState("");
     const [vdCountForAnalysis, setVdCountForAnalysis] = useState(5);
+    const [seasonId, setSeasonId] = useState(currentSeason);
+
+    const activeTheme = getSeasonConfig(seasonId);
 
     const contributionAnalysis = useMemo(() => {
-        const values = Object.values(sessions);
+        const values = Object.values(sessions)
+            .filter((s) => getSessionSeason(s) === seasonId)
+            .sort(sortSessionsDesc);
+
         if (!values.length) return null;
 
-        const sorted = [...values].sort((a, b) => b.id.localeCompare(a.id));
-        const slice = sorted.slice(0, vdCountForAnalysis);
-
+        const slice = values.slice(0, vdCountForAnalysis);
         const acc = {};
 
         slice.forEach((s) => {
             s.members.forEach((m) => {
-                if (m.value === undefined || m.value === null) return; // Modif ici
+                if (m.value === undefined || m.value === null) return;
                 if (normalizeName(m.name) === 'autre') return;
                 const key = normalizeName(m.name);
                 if (!acc[key]) {
@@ -350,18 +590,20 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
             playersCount: withAvg.length,
             bottom5,
         };
-    }, [sessions, vdCountForAnalysis]);
+    }, [sessions, vdCountForAnalysis, seasonId]);
+
+    const adminCode = import.meta.env.VITE_ADMIN_CODE || "coucu";
 
     if (!isAuthenticated) {
         return (
             <div className="min-h-[60vh] flex items-center justify-center px-4">
                 <Card className="p-8 w-full max-w-sm text-center space-y-6">
-                    <Shield className="w-12 h-12 mx-auto text-blue-500" />
+                    <Shield className="w-12 h-12 mx-auto text-cyan-500" />
                     <h2 className="text-xl font-black text-white uppercase italic tracking-widest">ACCÈS SÉCURISÉ</h2>
                     <form
                         onSubmit={(e) => {
                             e.preventDefault();
-                            passcode === "coucu" ? setIsAuthenticated(true) : setError("Invalide");
+                            adminCode === passcode ? setIsAuthenticated(true) : setError("Invalide");
                         }}
                         className="space-y-4"
                     >
@@ -370,10 +612,10 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
                             placeholder="Code secret"
                             value={passcode}
                             onChange={e => setPasscode(e.target.value)}
-                            className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-center text-white outline-none focus:border-blue-500 font-black tracking-widest"
+                            className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-center text-white outline-none focus:border-cyan-500 font-black tracking-widest"
                         />
                         {error && <p className="text-red-500 text-xs font-bold uppercase">{error}</p>}
-                        <button className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase py-4 rounded-xl">
+                        <button className="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black uppercase py-4 rounded-xl">
                             Entrer
                         </button>
                         <button type="button" onClick={onBack} className="text-slate-600 text-[10px] font-black uppercase">
@@ -385,6 +627,10 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
         );
     }
 
+    const filteredSessions = Object.values(sessions)
+        .filter((s) => getSessionSeason(s) === seasonId)
+        .sort(sortSessionsDesc);
+
     return (
         <div className="py-12 max-w-4xl mx-auto px-4 space-y-8">
             <button
@@ -394,9 +640,18 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
                 <ChevronLeft className="w-4 h-4" /> Annuler
             </button>
 
-            <Card className="p-6 md:p-8 space-y-6 shadow-2xl">
+            <Card className={`p-6 md:p-8 space-y-6 shadow-2xl bg-gradient-to-br ${activeTheme.panelGradient}`}>
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    <h2 className="text-3xl font-black text-white italic uppercase">PANNEAU DE GESTION CLOUD</h2>
+                    <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <SeasonBadge seasonId={seasonId} />
+                            <p className="text-[10px] uppercase tracking-[0.35em] font-black text-slate-500">
+                                Import saisonnier
+                            </p>
+                        </div>
+                        <h2 className="text-3xl font-black text-white italic uppercase">PANNEAU DE GESTION CLOUD</h2>
+                    </div>
+
                     <div className="flex items-center gap-2 text-[10px] text-slate-500">
                         <span className="uppercase font-black">Dernières VD analysées</span>
                         <input
@@ -405,54 +660,86 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
                             max={20}
                             value={vdCountForAnalysis}
                             onChange={(e) => setVdCountForAnalysis(Number(e.target.value) || 1)}
-                            className="w-16 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-blue-500 text-right"
+                            className="w-16 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-[11px] text-slate-200 outline-none focus:border-cyan-500 text-right"
                         />
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Date de Début</label>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Saison</label>
+                        <select
+                            value={seasonId}
+                            onChange={(e) => setSeasonId(e.target.value)}
+                            className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none text-sm focus:border-cyan-500"
+                        >
+                            <option value="s4">Saison 4 — Robots & Ingénieurs</option>
+                            <option value="s3">Saison 3 — Archéologues & Dinosaures</option>
+                        </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Date de début</label>
                         <input
                             type="date"
                             value={startDate}
                             onChange={e => setStartDate(e.target.value)}
-                            className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none text-sm focus:border-blue-500"
+                            className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none text-sm focus:border-cyan-500"
                         />
                     </div>
+
                     <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Date de Fin</label>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Date de fin</label>
                         <input
                             type="date"
                             value={endDate}
                             onChange={e => setEndDate(e.target.value)}
-                            className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none text-sm focus:border-blue-500"
+                            className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none text-sm focus:border-cyan-500"
                         />
                     </div>
-                    {/* totalPoints n'est plus obligatoire si on met les points bruts dans le CSV */}
-                    <input
-                        type="number"
-                        placeholder="Points Totaux LogHorizon (Auto si guild dans CSV)"
-                        value={totalPoints}
-                        onChange={e => setTotalPoints(e.target.value)}
-                        className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none text-sm md:col-span-2"
-                    />
+
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Points guilde</label>
+                        <input
+                            type="number"
+                            placeholder="Points Totaux LogHorizon (auto si guild dans CSV)"
+                            value={totalPoints}
+                            onChange={e => setTotalPoints(e.target.value)}
+                            className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none text-sm"
+                        />
+                    </div>
                 </div>
 
                 <textarea
                     rows="6"
                     value={csvData}
                     onChange={e => setCsvData(e.target.value)}
-                    placeholder="guild,LogHorizon,1822608&#10;member,Buer,150432"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono text-xs outline-none focus:border-blue-500"
+                    placeholder={"guild,LogHorizon,1822608\nmember,Buer,150432"}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-mono text-xs outline-none focus:border-cyan-500"
                 ></textarea>
 
+                {error && (
+                    <p className="text-red-500 text-xs font-bold uppercase">{error}</p>
+                )}
+
+                {success && (
+                    <p className="text-emerald-400 text-xs font-bold uppercase">{success}</p>
+                )}
+
                 <button
-                    onClick={() => {
+                    onClick={async () => {
+                        setError("");
+                        setSuccess("");
+
+                        if (!startDate || !endDate || !csvData.trim()) {
+                            setError("Date de début, date de fin et CSV requis.");
+                            return;
+                        }
+
                         const guilds = [];
                         const membersRaw = [];
 
-                        csvData.split('\n').forEach(l => {
+                        csvData.split('\n').forEach((l) => {
                             const p = l.split(',').map(s => s.trim());
                             if (p.length < 3) return;
 
@@ -461,35 +748,63 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
                             } else if (p[0] === 'member') {
                                 const name = p[1];
                                 const points = parseInt(p[2], 10);
-                                // On accepte le 0 ici
                                 if (normalizeName(name) === 'autre') return;
                                 membersRaw.push({ name, points });
                             }
                         });
 
-                        const totalGuildPoints = guilds.find(g => g.name === 'LogHorizon')?.points || parseInt(totalPoints, 10) || 0;
+                        const totalGuildPoints =
+                            guilds.find(g => normalizeName(g.name) === 'loghorizon')?.points ||
+                            parseInt(totalPoints, 10) ||
+                            0;
+
+                        if (!totalGuildPoints) {
+                            setError("Impossible de déterminer les points de guilde.");
+                            return;
+                        }
 
                         const members = membersRaw
                             .map(m => ({
                                 name: m.name,
-                                points: m.points, // On stocke les points réels ici
+                                points: m.points,
                                 value: parseFloat(((m.points / totalGuildPoints) * 100).toFixed(2)),
                             }))
                             .sort((a, b) => b.points - a.points);
 
                         const dStart = formatDisplayDate(startDate);
                         const dEnd = formatDisplayDate(endDate);
+                        const theme = getSeasonConfig(seasonId);
 
-                        onImport({
-                            id: "session_" + endDate.split('-').join('_'),
+                        const normalizedGuilds = (guilds.length ? guilds : [{
+                            name: 'LogHorizon',
+                            points: totalGuildPoints,
+                            color: theme.guildColor
+                        }]).map((g, index) => ({
+                            ...g,
+                            color: normalizeName(g.name) === 'loghorizon'
+                                ? theme.guildColor
+                                : (g.color || (index === 0 ? theme.guildColor : '#64748b'))
+                        }));
+
+                        const payload = {
+                            id: `${seasonId}_session_${endDate.split('-').join('_')}`,
+                            season: seasonId,
+                            seasonLabel: theme.fullName,
+                            startDate,
+                            endDate,
                             label: `${dStart} au ${dEnd}`,
                             shortLabel: `VD ${dEnd}`,
                             totalPointsLog: totalGuildPoints,
-                            guilds,
+                            guilds: normalizedGuilds,
                             members,
-                        });
+                        };
+
+                        await onImport(payload);
+                        setSuccess(`Session ${theme.short} publiée.`);
+                        setCsvData("");
+                        setTotalPoints("");
                     }}
-                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase py-4 rounded-xl shadow-lg flex items-center justify-center gap-2"
+                    className={`w-full ${activeTheme.buttonClass} font-black uppercase py-4 rounded-xl shadow-lg flex items-center justify-center gap-2`}
                 >
                     <Plus className="w-5 h-5" /> Publier sur la base
                 </button>
@@ -502,8 +817,8 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
                             Plus faibles contributeurs
                         </h3>
                         <span className="text-[10px] text-slate-400 uppercase font-black">
-              Sur {contributionAnalysis.totalSessions} dernières VD
-            </span>
+                            Sur {contributionAnalysis.totalSessions} dernières VD
+                        </span>
                     </div>
                     <p className="text-[10px] text-slate-500 uppercase font-black">
                         Présents sur toutes ces VD : {contributionAnalysis.playersCount} joueurs
@@ -537,10 +852,18 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
                 </Card>
             )}
 
-            <div className="space-y-2">
-                {Object.values(sessions).map(s => (
+            <div className="space-y-3">
+                {filteredSessions.map(s => (
                     <div key={s.id} className="flex items-center justify-between p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
-                        <p className="text-white font-bold text-xs">{s.label}</p>
+                        <div className="space-y-1">
+                            <p className="text-white font-bold text-xs">{s.label}</p>
+                            <div className="flex items-center gap-2">
+                                <SeasonBadge seasonId={getSessionSeason(s)} />
+                                <span className="text-slate-500 text-[10px] uppercase tracking-widest font-black">
+                                    {extractSessionSortKey(s)}
+                                </span>
+                            </div>
+                        </div>
                         <button onClick={() => onDelete(s.id)} className="text-slate-600 hover:text-red-500">
                             <Trash2 className="w-4 h-4" />
                         </button>
@@ -554,7 +877,10 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack }) => {
 const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
     const data = sessions[sessionId];
     if (!data) return null;
-    const totalLog = data.guilds.find(g => g.name === 'LogHorizon')?.points || 0;
+
+    const seasonId = getSessionSeason(data);
+    const theme = getSeasonConfig(seasonId);
+    const totalLog = data.guilds.find(g => normalizeName(g.name) === 'loghorizon')?.points || data.totalPointsLog || 0;
 
     return (
         <div className="space-y-8 py-8 px-4 animate-in fade-in">
@@ -564,32 +890,44 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
             >
                 <ChevronLeft className="w-5 h-5" /> Retour
             </button>
-            <div className="border-l-4 border-blue-600 pl-4">
+
+            <div className={`border-l-4 ${theme.strongBorder} pl-4 space-y-2`}>
+                <div className="flex flex-wrap items-center gap-3">
+                    <SeasonBadge seasonId={seasonId} />
+                    <p className={`text-[10px] uppercase font-black tracking-[0.35em] ${theme.primaryText}`}>
+                        Rapport de guerre
+                    </p>
+                </div>
                 <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter">{data.label}</h2>
-                <p className="text-blue-500 font-bold text-[10px] uppercase">Rapport de Guerre</p>
+                <p className="text-slate-500 text-sm">{theme.fullName}</p>
             </div>
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                <Card className="p-4 bg-gradient-to-br from-blue-600/10 to-transparent">
+                <Card className={`p-4 bg-gradient-to-br ${theme.panelGradient}`}>
                     <p className="text-slate-500 text-[8px] uppercase font-black">Score guilde</p>
                     <p className="text-xl md:text-3xl font-black text-white italic tracking-tighter">{totalLog.toLocaleString()}</p>
                 </Card>
-                <Card className="p-4 bg-gradient-to-br from-yellow-500/10 to-transparent">
+
+                <Card className={`p-4 ${theme.softBg}`}>
                     <p className="text-slate-500 text-[8px] uppercase font-black">MVP</p>
                     <p className="text-xl md:text-3xl font-black text-white uppercase italic truncate tracking-tighter">{data.members[0]?.name}</p>
                 </Card>
-                <Card className="p-4 bg-gradient-to-br from-cyan-500/10 to-transparent">
+
+                <Card className="p-4 bg-sky-500/10">
                     <p className="text-slate-500 text-[8px] uppercase font-black">Membres</p>
                     <p className="text-xl md:text-3xl font-black text-white italic">{data.members.length}</p>
                 </Card>
-                <Card className="p-4 bg-gradient-to-br from-red-500/10 to-transparent text-red-500">
-                    <p className="text-slate-500 text-[8px] uppercase font-black">Rang</p>
-                    <p className="text-xl md:text-3xl font-black italic">TOP 1</p>
+
+                <Card className="p-4 bg-fuchsia-500/10">
+                    <p className="text-slate-500 text-[8px] uppercase font-black">Saison</p>
+                    <p className={`text-xl md:text-3xl font-black italic ${theme.primaryText}`}>{theme.short}</p>
                 </Card>
             </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <Card className="p-6 md:p-8">
-                    <h3 className="text-xl font-black text-white uppercase italic mb-8 flex itemsCenter gap-2">
-                        <BarChart3 className="w-5 h-5 text-blue-500" /> Puissance guildes
+                    <h3 className="text-xl font-black text-white uppercase italic mb-8 flex items-center gap-2">
+                        <BarChart3 className={`w-5 h-5 ${theme.primaryText}`} /> Puissance guildes
                     </h3>
                     <div className="h-[350px]">
                         <ResponsiveContainer width="100%" height="100%">
@@ -599,16 +937,17 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
                                 <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
                                 <Bar dataKey="points" radius={[0, 4, 4, 0]} barSize={25}>
                                     {data.guilds.map((e, i) => (
-                                        <Cell key={`c-${i}`} fill={e.color || '#3b82f6'} />
+                                        <Cell key={`c-${i}`} fill={e.color || theme.guildColor} />
                                     ))}
                                 </Bar>
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
                 </Card>
+
                 <Card className="p-6 md:p-8">
                     <h3 className="text-xl font-black text-white uppercase italic mb-8 flex items-center gap-2">
-                        <Zap className="w-5 h-5 text-yellow-500" /> Parts membres
+                        <Zap className={`w-5 h-5 ${theme.primaryText}`} /> Parts membres
                     </h3>
                     <div className="h-[350px]">
                         <ResponsiveContainer width="100%" height="100%">
@@ -639,7 +978,9 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
                     </div>
                 </Card>
             </div>
-            <Podium members={data.members} totalPoints={data.totalPointsLog} />
+
+            <Podium members={data.members} totalPoints={data.totalPointsLog} seasonId={seasonId} />
+
             <Card className="overflow-x-auto shadow-2xl">
                 <table className="w-full text-left">
                     <thead className="bg-slate-950/50 text-slate-500 text-[9px] font-black uppercase tracking-widest font-mono">
@@ -652,18 +993,18 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
                     </thead>
                     <tbody className="divide-y divide-slate-800/50 text-xs">
                     {data.members.map((m, i) => (
-                        <tr key={m.name} className="hover:bg-blue-600/5 transition-colors group">
+                        <tr key={m.name} className="hover:bg-cyan-600/5 transition-colors group">
                             <td className="px-6 py-4">
-                  <span
-                      className={`w-7 h-7 rounded flex items-center justify-center font-black ${
-                          i < 3 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500'
-                      }`}
-                  >
-                    {i + 1}
-                  </span>
+                                <span
+                                    className={`w-7 h-7 rounded flex items-center justify-center font-black ${
+                                        i < 3 ? `${theme.buttonClass}` : 'bg-slate-800 text-slate-500'
+                                    }`}
+                                >
+                                    {i + 1}
+                                </span>
                             </td>
                             <td
-                                className="px-6 py-4 text-white font-black uppercase italic group-hover:text-blue-400 cursor-pointer"
+                                className="px-6 py-4 text-white font-black uppercase italic group-hover:text-cyan-400 cursor-pointer"
                                 onClick={() => onSelectPlayer && onSelectPlayer(m.name)}
                             >
                                 {m.name}
@@ -672,7 +1013,6 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
                                 {m.value}%
                             </td>
                             <td className="px-8 py-4 text-right text-slate-500 font-mono italic">
-                                {/* Modif ici pour utiliser les points stockés ou recalculés */}
                                 {(m.points || Math.round((data.totalPointsLog * m.value) / 100)).toLocaleString()}{' '}
                                 <span className="text-[8px] opacity-40 uppercase ml-1">Pts</span>
                             </td>
@@ -685,10 +1025,11 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
     );
 };
 
-const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer }) => {
+const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer, selectedSeason }) => {
     const { hallOfFame, records } = globalStats;
     const top10 = hallOfFame.slice(0, 10);
     const absoluteRecord = records[0];
+    const theme = getSeasonConfig(selectedSeason === 'all' ? CURRENT_SEASON : selectedSeason);
 
     return (
         <div className="space-y-8 py-8 px-4">
@@ -699,17 +1040,23 @@ const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer }) => {
                 <ChevronLeft className="w-5 h-5" /> Retour
             </button>
 
-            <div className="border-l-4 border-yellow-500 pl-4">
+            <div className={`border-l-4 ${theme.strongBorder} pl-4`}>
+                <div className="flex flex-wrap items-center gap-3 mb-2">
+                    {selectedSeason !== 'all' && <SeasonBadge seasonId={selectedSeason} />}
+                    <p className={`text-[10px] uppercase font-black tracking-[0.35em] ${theme.primaryText}`}>
+                        Légendes de Log Horizon
+                    </p>
+                </div>
                 <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter">
                     Hall of Fame
                 </h2>
-                <p className="text-yellow-500 font-bold text-[10px] uppercase">
-                    Légendes de Log Horizon
+                <p className="text-slate-400 text-sm">
+                    {selectedSeason === 'all' ? 'Classement cumulé toutes saisons' : `Classement cumulé ${theme.fullName}`}
                 </p>
             </div>
 
             {absoluteRecord && (
-                <Card className="p-6 bg-gradient-to-r from-yellow-500/10 to-transparent flex items-center justify-between">
+                <Card className={`p-6 bg-gradient-to-r ${theme.panelGradient} flex items-center justify-between`}>
                     <div>
                         <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest">
                             Record absolu
@@ -721,17 +1068,19 @@ const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer }) => {
                             {absoluteRecord.value}% sur {absoluteRecord.label}
                         </p>
                     </div>
-                    <Crown className="w-10 h-10 text-yellow-500" />
+                    <Crown className={`w-10 h-10 ${theme.primaryText}`} />
                 </Card>
             )}
 
             <Card className="overflow-hidden">
                 <div className="p-6 flex items-center justify-between">
                     <h3 className="text-xl font-black text-white uppercase italic flex items-center gap-2">
-                        <Trophy className="w-5 h-5 text-blue-500" />
+                        <Trophy className={`w-5 h-5 ${theme.primaryText}`} />
                         Top 10 accumulé
                     </h3>
+                    {selectedSeason !== 'all' && <SeasonBadge seasonId={selectedSeason} />}
                 </div>
+
                 <div className="overflow-x-auto">
                     <table className="w-full text-left">
                         <thead className="bg-slate-950/50 text-slate-500 text-[9px] font-black uppercase tracking-widest font-mono">
@@ -744,18 +1093,18 @@ const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer }) => {
                         </thead>
                         <tbody className="divide-y divide-slate-800/50 text-xs">
                         {top10.map((m, i) => (
-                            <tr key={m.key} className="hover:bg-blue-600/5 transition-colors group">
+                            <tr key={m.key} className="hover:bg-cyan-600/5 transition-colors group">
                                 <td className="px-6 py-4">
-                    <span
-                        className={`w-7 h-7 rounded flex items-center justify-center font-black ${
-                            i < 3 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500'
-                        }`}
-                    >
-                      {i + 1}
-                    </span>
+                                    <span
+                                        className={`w-7 h-7 rounded flex items-center justify-center font-black ${
+                                            i < 3 ? `${theme.buttonClass}` : 'bg-slate-800 text-slate-500'
+                                        }`}
+                                    >
+                                        {i + 1}
+                                    </span>
                                 </td>
                                 <td
-                                    className="px-6 py-4 text-white font-black uppercase italic group-hover:text-blue-400 cursor-pointer"
+                                    className="px-6 py-4 text-white font-black uppercase italic group-hover:text-cyan-400 cursor-pointer"
                                     onClick={() => onSelectPlayer && onSelectPlayer(m.name)}
                                 >
                                     {m.name}
@@ -776,16 +1125,19 @@ const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer }) => {
     );
 };
 
-const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
+const PlayerProfilePage = ({ playerName, globalStats, onBack, selectedSeason }) => {
     const key = normalizeName(playerName);
     const player = globalStats.memberTotals[key];
     if (!player) return null;
+
+    const theme = getSeasonConfig(selectedSeason === 'all' ? CURRENT_SEASON : selectedSeason);
 
     const chartData = player.history.map((h) => ({
         name: h.label,
         percent: h.value,
         points: h.points,
         estimatedPoints: h.points || Math.round((h.totalPointsLog * h.value) / 100),
+        season: h.season,
     }));
 
     const first5 = player.history.slice(-5);
@@ -808,16 +1160,20 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
                 <ChevronLeft className="w-5 h-5" /> Retour
             </button>
 
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div className="border-l-4 border-cyan-500 pl-4">
-                    <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest">
-                        Profil joueur
-                    </p>
+            <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                <div className={`border-l-4 ${theme.strongBorder} pl-4`}>
+                    <div className="flex flex-wrap items-center gap-3 mb-2">
+                        {selectedSeason !== 'all' && <SeasonBadge seasonId={selectedSeason} />}
+                        <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest">
+                            Profil joueur
+                        </p>
+                    </div>
                     <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter">
                         {player.name}
                     </h2>
                 </div>
-                <div className="flex gap-4">
+
+                <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
                             Sessions suivies
@@ -826,6 +1182,7 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
                             {player.history.length}
                         </p>
                     </Card>
+
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
                             % cumulé sur VD
@@ -834,14 +1191,16 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
                             {player.totalPct.toFixed(1)}%
                         </p>
                     </Card>
+
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
                             Points réels cumulés
                         </p>
-                        <p className="text-lg font-black text-violet-400 text-right">
+                        <p className="text-lg font-black text-fuchsia-400 text-right">
                             {totalPoints.toLocaleString()}
                         </p>
                     </Card>
+
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
                             Tendance 5 dernières
@@ -860,21 +1219,22 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
 
             <Card className="p-6 md:p-8">
                 <h3 className="text-xl font-black text-white uppercase italic mb-6 flex items-center gap-2">
-                    <BarChart3 className="w-5 h-5 text-cyan-500" />
+                    <BarChart3 className={`w-5 h-5 ${theme.primaryText}`} />
                     Progression sur les sessions
                 </h3>
+
                 <div className="h-[350px]">
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartData} margin={{ left: -20 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                             <XAxis dataKey="name" stroke="#475569" fontSize={10} />
                             <YAxis yAxisId="left" stroke="#22d3ee" fontSize={10} />
-                            <YAxis yAxisId="right" orientation="right" stroke="#a855f7" fontSize={10} />
+                            <YAxis yAxisId="right" orientation="right" stroke="#d946ef" fontSize={10} />
                             <Tooltip
                                 content={({ active, payload, label }) => {
                                     if (!active || !payload || !payload.length) return null;
                                     return (
-                                        <div className="bg-slate-950/95 border-2 border-blue-500/50 p-3 rounded-xl shadow-2xl backdrop-blur-md z-50">
+                                        <div className="bg-slate-950/95 border-2 border-cyan-500/50 p-3 rounded-xl shadow-2xl backdrop-blur-md z-50">
                                             <p className="text-white font-black uppercase italic tracking-wider text-xs mb-1">
                                                 {label}
                                             </p>
@@ -906,7 +1266,7 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
                                 yAxisId="right"
                                 type="monotone"
                                 dataKey="estimatedPoints"
-                                stroke="#a855f7"
+                                stroke="#d946ef"
                                 strokeWidth={2}
                                 dot={{ r: 3 }}
                                 name="Part du score guilde"
@@ -927,14 +1287,18 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
                         <thead className="bg-slate-950/50 text-slate-500 text-[9px] font-black uppercase tracking-widest font-mono">
                         <tr>
                             <th className="px-6 py-3">Session</th>
+                            <th className="px-6 py-3">Saison</th>
                             <th className="px-6 py-3 text-right">Part (%)</th>
                             <th className="px-6 py-3 text-right">Points Réels</th>
                         </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/50 text-xs">
                         {player.history.map((h) => (
-                            <tr key={h.sessionId} className="hover:bg-blue-600/5">
+                            <tr key={h.sessionId} className="hover:bg-cyan-600/5">
                                 <td className="px-6 py-3 text-white">{h.label}</td>
+                                <td className="px-6 py-3">
+                                    <SeasonBadge seasonId={h.season} />
+                                </td>
                                 <td className="px-6 py-3 text-right text-cyan-400 font-mono">
                                     {h.value}%
                                 </td>
@@ -955,11 +1319,13 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack }) => {
 // --- APP ---
 export default function App() {
     const [view, setView] = useState('home');
+    const [previousView, setPreviousView] = useState('home');
     const [selectedId, setSelectedId] = useState(null);
     const [selectedPlayer, setSelectedPlayer] = useState(null);
     const [sessions, setSessions] = useState({});
     const [user, setUser] = useState(null);
     const [randomHomeMessage, setRandomHomeMessage] = useState("");
+    const [selectedSeason, setSelectedSeason] = useState(CURRENT_SEASON);
 
     useEffect(() => {
         const initAuth = async () => {
@@ -988,15 +1354,17 @@ export default function App() {
         return () => unsub();
     }, [user]);
 
-    // Message fun basé sur la dernière VD
     useEffect(() => {
-        const values = Object.values(sessions);
+        const values = Object.values(sessions)
+            .filter((session) => selectedSeason === 'all' || getSessionSeason(session) === selectedSeason)
+            .sort(sortSessionsDesc);
+
         if (!values.length) {
             setRandomHomeMessage("");
             return;
         }
 
-        const latest = [...values].sort((a, b) => b.id.localeCompare(a.id))[0];
+        const latest = values[0];
         const members = latest.members || [];
         if (!members.length) {
             setRandomHomeMessage("");
@@ -1026,22 +1394,23 @@ export default function App() {
         }
 
         setRandomHomeMessage(msg);
-    }, [sessions]);
+    }, [sessions, selectedSeason]);
 
-    const globalStats = useMemo(() => {
+    const activeStats = useMemo(() => {
         if (!sessions || Object.keys(sessions).length === 0) return null;
-        return buildGlobalStats(sessions);
-    }, [sessions]);
+        return buildGlobalStats(sessions, selectedSeason);
+    }, [sessions, selectedSeason]);
 
     const allMembersList = useMemo(() => {
-        if (!globalStats) return [];
-        return Object.values(globalStats.memberTotals).map((m) => m.name);
-    }, [globalStats]);
+        if (!activeStats) return [];
+        return Object.values(activeStats.memberTotals).map((m) => m.name);
+    }, [activeStats]);
 
     const handleImport = async (s) => {
         if (!user) return;
         try {
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', s.id), s);
+            setSelectedSeason(s.season || CURRENT_SEASON);
             setView('home');
         } catch (err) {
             console.error("Import error:", err);
@@ -1057,101 +1426,114 @@ export default function App() {
         }
     };
 
+    const openPlayer = (name) => {
+        if (!activeStats) return;
+        const key = normalizeName(name);
+        if (!activeStats.memberTotals[key]) {
+            alert("Ce membre n'existe pas encore dans la saison sélectionnée.");
+            return;
+        }
+        setSelectedPlayer(activeStats.memberTotals[key].name);
+        setPreviousView(view);
+        setView('player');
+    };
+
     return (
-        <div className="min-h-screen bg-[#020203] text-slate-200 selection:bg-blue-500 pb-10 font-sans">
+        <div className="min-h-screen bg-[#020203] text-slate-200 selection:bg-cyan-500 pb-10 font-sans">
             <nav className="border-b border-slate-900 bg-slate-950/90 backdrop-blur-xl sticky top-0 z-50">
-                <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+                <div className="max-w-7xl mx-auto px-6 min-h-16 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                     <div
                         className="flex items-center gap-3 cursor-pointer group"
                         onClick={() => setView('home')}
                     >
-                        <div className="bg-blue-600 p-1.5 rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.4)] group-hover:rotate-6 transition-transform">
-                            <Sword className="w-5 h-5 text-white" />
+                        <div className="bg-cyan-500 p-1.5 rounded-xl shadow-[0_0_20px_rgba(34,211,238,0.35)] group-hover:rotate-6 transition-transform">
+                            <Sword className="w-5 h-5 text-slate-950" />
                         </div>
                         <div>
-              <span className="block font-black text-xl tracking-tighter uppercase italic leading-none text-white leading-none">
-                LOG HORIZON
-              </span>
-                            <span className="block text-[8px] font-black uppercase tracking-widest text-blue-500 leading-none mt-1">
-                {/* vide comme demandé */}
-              </span>
+                            <span className="block font-black text-xl tracking-tighter uppercase italic leading-none text-white">
+                                LOG HORIZON
+                            </span>
+                            <span className="block text-[8px] font-black uppercase tracking-widest text-cyan-400 leading-none mt-1">
+                                Archives multisaissons
+                            </span>
                         </div>
                     </div>
-                    <div className="flex items-center gap-4">
+
+                    <div className="flex flex-wrap items-center gap-4 justify-between md:justify-end">
                         <PlayerSearch
                             allMembers={allMembersList}
-                            hasStats={!!globalStats}
-                            onSelectPlayer={(name) => {
-                                if (!globalStats) return;
-                                const key = normalizeName(name);
-                                if (!globalStats.memberTotals[key]) {
-                                    alert("Ce membre n'existe pas encore dans les archives.");
-                                    return;
-                                }
-                                setSelectedPlayer(globalStats.memberTotals[key].name);
-                                setView('player');
-                            }}
+                            hasStats={!!activeStats}
+                            onSelectPlayer={openPlayer}
                         />
-                        <div
-                            className={`w-2.5 h-2.5 rounded-full ${
-                                user
-                                    ? 'bg-green-500 animate-pulse shadow-[0_0_10px_rgba(34,197,94,0.5)]'
-                                    : 'bg-red-500'
-                            }`}
-                        ></div>
+
+                        <div className="flex items-center gap-3">
+                            <SeasonBadge seasonId={selectedSeason === 'all' ? CURRENT_SEASON : selectedSeason} />
+                            <div
+                                className={`w-2.5 h-2.5 rounded-full ${
+                                    user
+                                        ? 'bg-green-500 animate-pulse shadow-[0_0_10px_rgba(34,197,94,0.5)]'
+                                        : 'bg-red-500'
+                                }`}
+                            ></div>
+                        </div>
                     </div>
                 </div>
             </nav>
+
             <main className="max-w-7xl mx-auto">
                 {view === 'home' && (
                     <HomePage
                         sessions={sessions}
+                        selectedSeason={selectedSeason}
+                        onSeasonChange={setSelectedSeason}
                         onSelectSession={(id) => {
                             setSelectedId(id);
+                            setPreviousView('home');
                             setView('stats');
                         }}
                         onOpenAdmin={() => setView('admin')}
-                        onOpenHall={() => setView('hall')}
+                        onOpenHall={() => {
+                            setPreviousView('home');
+                            setView('hall');
+                        }}
                         randomMessage={randomHomeMessage}
                     />
                 )}
+
                 {view === 'stats' && (
                     <StatsPage
                         sessionId={selectedId}
                         sessions={sessions}
                         onBack={() => setView('home')}
-                        onSelectPlayer={(name) => {
-                            if (!globalStats) return;
-                            setSelectedPlayer(name);
-                            setView('player');
-                        }}
+                        onSelectPlayer={openPlayer}
                     />
                 )}
+
                 {view === 'admin' && (
                     <AdminPage
                         sessions={sessions}
                         onImport={handleImport}
                         onDelete={handleDelete}
                         onBack={() => setView('home')}
+                        currentSeason={CURRENT_SEASON}
                     />
                 )}
-                {view === 'hall' && globalStats && (
+
+                {view === 'hall' && activeStats && (
                     <HallOfFamePage
-                        globalStats={globalStats}
-                        onBack={() => setView('home')}
-                        onSelectPlayer={(name) => {
-                            const key = normalizeName(name);
-                            if (!globalStats.memberTotals[key]) return;
-                            setSelectedPlayer(globalStats.memberTotals[key].name);
-                            setView('player');
-                        }}
+                        globalStats={activeStats}
+                        onBack={() => setView(previousView || 'home')}
+                        onSelectPlayer={openPlayer}
+                        selectedSeason={selectedSeason}
                     />
                 )}
-                {view === 'player' && selectedPlayer && globalStats && (
+
+                {view === 'player' && selectedPlayer && activeStats && (
                     <PlayerProfilePage
                         playerName={selectedPlayer}
-                        globalStats={globalStats}
-                        onBack={() => setView('stats')}
+                        globalStats={activeStats}
+                        onBack={() => setView(previousView || 'home')}
+                        selectedSeason={selectedSeason}
                     />
                 )}
             </main>
