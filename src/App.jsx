@@ -7,9 +7,10 @@ import {
     PieChart, Pie, LineChart, Line, CartesianGrid, Legend
 } from 'recharts';
 import {
-    Trophy, ChevronLeft, Sword,
-    Zap, Crown, BarChart3, Shield, ChevronRight, Plus, Trash2, Lock, Medal, Award, Bot, Pickaxe
+    Trophy, ChevronLeft, Sword, Zap, Crown, BarChart3, Shield, ChevronRight,
+    Plus, Trash2, Lock, Medal, Award, Bot, Pickaxe, Filter, Layers3, CookingPot
 } from 'lucide-react';
+import Season5RecipeBook from './components/Season5RecipeBook.jsx';
 
 // --- CONFIG FIREBASE ---
 const firebaseConfig = {
@@ -28,16 +29,20 @@ const auth = getAuth(app);
 const appId = "archives-vd-loghorizon";
 
 // --- CONSTS / UTILS ---
-const CURRENT_SEASON = 's4';
+const CURRENT_SEASON = 's5';
 const LEGACY_SEASON = 's3';
+const S3_FINAL_RANK = 16;
+const S4_FINAL_RANK = 16;
 
 const SEASON_THEMES = {
     s3: {
         id: 's3',
         short: 'S3',
-        name: 'Saison 3',
-        fullName: 'Saison 3 — Archéologues & Dinosaures',
-        description: 'Les archives fossiles de la guilde, entre reliques et scores préhistoriques.',
+        name: 'Traces des Ancients',
+        fullName: 'Saison 3 — Traces des Ancients',
+        themeLabel: 'Archéologues & Dinosaures',
+        finalRank: S3_FINAL_RANK,
+        description: 'Une saison sous le signe de l’archéologie et des dinosaures.',
         icon: Pickaxe,
         guildColor: '#f59e0b',
         primaryText: 'text-amber-400',
@@ -50,14 +55,16 @@ const SEASON_THEMES = {
         titleGradient: 'from-amber-400 via-yellow-300 to-emerald-400',
         panelGradient: 'from-amber-500/12 via-emerald-500/6 to-transparent',
         chipClass: 'bg-amber-500/10 text-amber-300 border border-amber-500/20',
-        emptyLabel: 'Aucune VD archéologique enregistrée.',
+        emptyLabel: 'Aucune VD enregistrée pour Traces des Ancients.',
     },
     s4: {
         id: 's4',
         short: 'S4',
-        name: 'Saison 4',
-        fullName: 'Saison 4 — Robots & Ingénieurs',
-        description: 'Une nouvelle ère mécanique pour les archives de la guilde.',
+        name: 'Ingénieur de l’éther',
+        fullName: 'Saison 4 — Ingénieur de l’éther',
+        themeLabel: 'Ingénieurs & Robots',
+        finalRank: S4_FINAL_RANK,
+        description: 'La guilde passe aux robots et à l’ingénierie de l’éther.',
         icon: Bot,
         guildColor: '#22d3ee',
         primaryText: 'text-cyan-400',
@@ -70,15 +77,49 @@ const SEASON_THEMES = {
         titleGradient: 'from-cyan-400 via-sky-300 to-fuchsia-400',
         panelGradient: 'from-cyan-500/12 via-fuchsia-500/6 to-transparent',
         chipClass: 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20',
-        emptyLabel: 'Aucune VD robotique enregistrée pour le moment.',
+        emptyLabel: 'Aucune VD enregistrée pour Ingénieur de l’éther.',
+    },
+    s5: {
+        id: 's5',
+        short: 'S5',
+        name: 'Recette secrète',
+        fullName: 'Saison 5 — Recette secrète',
+        themeLabel: 'Cuisine',
+        description: 'Les recettes connues de la guilde, leurs ingrédients et leurs effets.',
+        icon: CookingPot,
+        guildColor: '#f87171',
+        primaryText: 'text-rose-300',
+        secondaryText: 'text-red-300',
+        softBg: 'bg-rose-500/10',
+        softBorder: 'border-rose-500/30',
+        strongBorder: 'border-rose-500',
+        buttonClass: 'bg-rose-400 hover:bg-rose-300 text-slate-950',
+        secondaryButtonClass: 'bg-slate-800 hover:bg-slate-700 text-rose-200 border border-rose-500/20',
+        titleGradient: 'from-rose-300 via-red-300 to-pink-200',
+        panelGradient: 'from-rose-500/12 via-red-500/6 to-transparent',
+        chipClass: 'bg-rose-500/10 text-rose-200 border border-rose-500/20',
+        emptyLabel: 'Aucune VD enregistrée pour Recette secrète.',
     }
 };
+
+const SEASON_IDS = Object.keys(SEASON_THEMES);
 
 const MEMBER_COLORS = [
     '#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6',
     '#ec4899', '#06b6d4', '#f97316', '#14b8a6', '#6366f1',
     '#a855f7', '#d946ef', '#fbbf24', '#2dd4bf', '#fb7185',
     '#818cf8', '#34d399', '#60a5fa', '#f472b6', '#fb923c'
+];
+
+const PROFILE_FILTERS = [
+    { id: 'all', label: 'Toutes', icon: Layers3 },
+    ...SEASON_IDS.map((id) => ({ id, label: SEASON_THEMES[id].short, icon: SEASON_THEMES[id].icon })),
+    { id: 'common', label: 'Communes', icon: Filter },
+];
+
+const HOF_FILTERS = [
+    { id: 'all', label: 'Global' },
+    ...[...SEASON_IDS].reverse().map((id) => ({ id, label: SEASON_THEMES[id].short })),
 ];
 
 const getSeasonConfig = (seasonId) => SEASON_THEMES[seasonId] || SEASON_THEMES[LEGACY_SEASON];
@@ -107,30 +148,30 @@ const normalizeName = (str = '') =>
         .toLowerCase()
         .trim();
 
-const SOLO_PATTERNS = [
-    (a) => `${a} a réveillé un dinosaure de la saison 3.`,
-    (a) => `${a} a laissé des traces fossiles dans les archives.`,
-    (a) => `${a} a calibré les robots de la saison 4.`,
-    (a) => `${a} ne bug jamais. Enfin presque.`,
-    (a) => `${a} transforme chaque VD en rapport d’ingénierie.`,
-    (a) => `${a} mérite un labo secret rien qu’à lui.`,
-];
-
-const DUO_PATTERNS = [
-    (a, b) => `${a} et ${b} sont un duo illégal en VD.`,
-    (a, b) => `${a} construit, ${b} termine le chantier.`,
-    (a, b) => `${a} déterre les points, ${b} les empile.`,
-    (a, b) => `${a} et ${b} ont probablement un plan secret.`,
-    (a, b) => `Quand ${a} et ${b} jouent, les robots applaudissent.`,
-];
-
-const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
-
-const buildGlobalStats = (sessionsObj, seasonFilter = 'all') => {
-    const sessions = Object.values(sessionsObj)
+const getSeasonSessions = (sessionsObj, seasonFilter = 'all') =>
+    Object.values(sessionsObj)
         .filter((s) => seasonFilter === 'all' || getSessionSeason(s) === seasonFilter)
         .sort(sortSessionsAsc);
 
+const getSessionInsight = (sessionsObj, seasonFilter = 'all') => {
+    const latest = getSeasonSessions(sessionsObj, seasonFilter).at(-1);
+    if (!latest) return '';
+
+    const contributors = (latest.members || [])
+        .filter((member) => member.value !== undefined && member.value !== null && normalizeName(member.name) !== 'autre')
+        .sort((a, b) => b.value - a.value);
+    if (!contributors.length) return '';
+
+    const sessionLabel = latest.shortLabel || latest.label || 'la dernière session';
+    const [first, second] = contributors;
+    if (!second) return `${sessionLabel} : ${first.name} représente ${first.value}% des contributions.`;
+
+    const combinedShare = (first.value + second.value).toFixed(1);
+    return `${sessionLabel} : ${first.name} et ${second.name} représentent ${combinedShare}% des contributions.`;
+};
+
+const buildGlobalStats = (sessionsObj, seasonFilter = 'all') => {
+    const sessions = getSeasonSessions(sessionsObj, seasonFilter);
     const memberTotals = {};
 
     sessions.forEach((s) => {
@@ -145,7 +186,8 @@ const buildGlobalStats = (sessionsObj, seasonFilter = 'all') => {
                     name: m.name,
                     totalPct: 0,
                     totalPoints: 0,
-                    history: []
+                    history: [],
+                    seasons: new Set(),
                 };
             }
 
@@ -161,10 +203,16 @@ const buildGlobalStats = (sessionsObj, seasonFilter = 'all') => {
                 totalPointsLog: s.totalPointsLog,
                 endDate: extractSessionSortKey(s),
             });
+            memberTotals[key].seasons.add(getSessionSeason(s));
         });
     });
 
-    const hallOfFame = Object.values(memberTotals).sort((a, b) => b.totalPct - a.totalPct);
+    const hallOfFame = Object.values(memberTotals)
+        .map((m) => ({
+            ...m,
+            seasons: Array.from(m.seasons),
+        }))
+        .sort((a, b) => b.totalPct - a.totalPct);
 
     const records = [];
     sessions.forEach((s) => {
@@ -191,6 +239,88 @@ const buildGlobalStats = (sessionsObj, seasonFilter = 'all') => {
     };
 };
 
+const buildCrossSeasonHallOfFame = (sessionsObj) => ({
+    all: buildGlobalStats(sessionsObj, 'all'),
+    ...Object.fromEntries(SEASON_IDS.map((seasonId) => [seasonId, buildGlobalStats(sessionsObj, seasonId)])),
+});
+
+const getProfileHistory = (player, mode) => {
+    if (!player) return [];
+    const history = [...player.history].sort((a, b) => a.endDate.localeCompare(b.endDate));
+
+    if (mode === 'all') return history;
+    if (SEASON_THEMES[mode]) return history.filter((h) => h.season === mode);
+
+    if (mode === 'common') {
+        const seasons = new Set(history.map((h) => h.season));
+        const shouldHaveCommon = seasons.size >= 2;
+        return shouldHaveCommon ? history : [];
+    }
+
+    return history;
+};
+
+const buildWeakContributors = (sessionsObj, lastCount = 5, seasonId = 'all') => {
+    const allSessionsDesc = Object.values(sessionsObj)
+        .filter((session) => seasonId === 'all' || getSessionSeason(session) === seasonId)
+        .sort(sortSessionsDesc);
+    if (!allSessionsDesc.length) return null;
+
+    const latestSession = allSessionsDesc[0];
+    const latestPlayers = new Set(
+        (latestSession.members || [])
+            .filter((m) => m.value !== undefined && m.value !== null && normalizeName(m.name) !== 'autre')
+            .map((m) => normalizeName(m.name))
+    );
+
+    if (!latestPlayers.size) return null;
+
+    const slice = allSessionsDesc.slice(0, lastCount);
+    const acc = {};
+
+    slice.forEach((s) => {
+        s.members.forEach((m) => {
+            if (m.value === undefined || m.value === null) return;
+            if (normalizeName(m.name) === 'autre') return;
+
+            const key = normalizeName(m.name);
+            if (!latestPlayers.has(key)) return;
+
+            if (!acc[key]) {
+                acc[key] = {
+                    key,
+                    name: m.name,
+                    sumPct: 0,
+                    sumPoints: 0,
+                    count: 0,
+                    seasons: new Set(),
+                };
+            }
+
+            acc[key].sumPct += m.value;
+            acc[key].sumPoints += (m.points || 0);
+            acc[key].count += 1;
+            acc[key].seasons.add(getSessionSeason(s));
+        });
+    });
+
+    const withStats = Object.values(acc)
+        .map((m) => ({
+            ...m,
+            avgPct: m.sumPct / m.count,
+            seasons: Array.from(m.seasons),
+        }))
+        .sort((a, b) => a.avgPct - b.avgPct)
+        .slice(0, 5);
+
+    return {
+        latestSession,
+        totalSessions: slice.length,
+        playersCount: withStats.length,
+        bottom5: withStats,
+    };
+};
+
 // --- UI ---
 const Card = ({ children, className = "" }) => (
     <div className={`bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden ${className}`}>
@@ -210,11 +340,43 @@ const SeasonBadge = ({ seasonId, className = "" }) => {
     );
 };
 
+const FinalSeasonCard = ({ seasonId }) => {
+    const theme = getSeasonConfig(seasonId);
+    const Icon = theme.icon;
+
+    return (
+        <Card className={`overflow-hidden border ${theme.softBorder} bg-gradient-to-br ${theme.panelGradient}`}>
+            <div className="flex items-center gap-4 p-4 md:p-5">
+                <div className={`shrink-0 rounded-xl p-3 ${theme.softBg}`}>
+                    <Icon className={`h-6 w-6 ${theme.primaryText}`} />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <SeasonBadge seasonId={seasonId} />
+                        <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">
+                            Saison terminée
+                        </span>
+                    </div>
+                    <p className="mt-2 truncate text-sm font-black uppercase text-white">{theme.fullName}</p>
+                    <p className="text-xs text-slate-400">Thème : {theme.themeLabel}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                    <p className={`text-3xl font-black leading-none tracking-tight ${theme.primaryText}`}>#{theme.finalRank}</p>
+                    <p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Classement final</p>
+                </div>
+            </div>
+        </Card>
+    );
+};
+
 const SeasonTabs = ({ value, onChange, counts }) => {
     const options = [
         { id: 'all', label: 'Toutes', count: counts.all },
-        { id: 's4', label: 'S4', count: counts.s4 },
-        { id: 's3', label: 'S3', count: counts.s3 },
+        ...[...SEASON_IDS].reverse().map((id) => ({
+            id,
+            label: SEASON_THEMES[id].short,
+            count: counts[id],
+        })),
     ];
 
     return (
@@ -240,6 +402,32 @@ const SeasonTabs = ({ value, onChange, counts }) => {
         </div>
     );
 };
+
+const SmallFilterTabs = ({ items, value, onChange }) => (
+    <div className="flex flex-wrap gap-2">
+        {items.map((item) => {
+            const Icon = item.icon;
+            const active = value === item.id;
+            const theme = item.id === 'all' || item.id === 'common'
+                ? getSeasonConfig(CURRENT_SEASON)
+                : getSeasonConfig(item.id);
+            return (
+                <button
+                    key={item.id}
+                    onClick={() => onChange(item.id)}
+                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                        active
+                            ? `${theme.buttonClass} border-transparent`
+                            : 'bg-slate-950/60 text-slate-300 border-slate-800 hover:border-slate-700'
+                    }`}
+                >
+                    {Icon && <Icon className="w-3.5 h-3.5" />}
+                    {item.label}
+                </button>
+            );
+        })}
+    </div>
+);
 
 const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
@@ -302,7 +490,6 @@ const Podium = ({ members, totalPoints, seasonId }) => {
     );
 };
 
-// --- Recherche joueur ---
 const PlayerSearch = ({ allMembers, onSelectPlayer, hasStats }) => {
     const [input, setInput] = useState('');
     const [suggestions, setSuggestions] = useState([]);
@@ -368,7 +555,7 @@ const HomePage = ({
                       onSelectSession,
                       onOpenAdmin,
                       onOpenHall,
-                      randomMessage
+                      sessionInsight
                   }) => {
     const activeTheme = getSeasonConfig(selectedSeason === 'all' ? CURRENT_SEASON : selectedSeason);
 
@@ -378,8 +565,10 @@ const HomePage = ({
 
     const counts = {
         all: Object.values(sessions).length,
-        s3: Object.values(sessions).filter((s) => getSessionSeason(s) === 's3').length,
-        s4: Object.values(sessions).filter((s) => getSessionSeason(s) === 's4').length,
+        ...Object.fromEntries(SEASON_IDS.map((seasonId) => [
+            seasonId,
+            Object.values(sessions).filter((session) => getSessionSeason(session) === seasonId).length,
+        ])),
     };
 
     return (
@@ -390,7 +579,7 @@ const HomePage = ({
                     <div className="absolute bottom-0 left-0 h-32 w-32 rounded-full bg-fuchsia-500/10 blur-3xl"></div>
                 </div>
 
-                <div className="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+                <div className="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
                     <div className="space-y-5 max-w-4xl min-w-0">
                         <div className="flex flex-wrap items-center gap-3">
                             <SeasonBadge seasonId={CURRENT_SEASON} />
@@ -409,7 +598,7 @@ const HomePage = ({
 
                             <p className="text-slate-300 text-base md:text-lg max-w-2xl leading-relaxed">
                                 {selectedSeason === 'all'
-                                    ? 'Les saisons de guerre de la guilde, réunies dans une seule archive.'
+                                    ? 'Retrouvez les sessions VD, leurs résultats et les classements de la guilde.'
                                     : activeTheme.description}
                             </p>
                         </div>
@@ -430,14 +619,15 @@ const HomePage = ({
                             </button>
                         </div>
 
-                        {randomMessage && (
-                            <p className="text-slate-500 text-sm italic max-w-2xl pt-2">
-                                {randomMessage}
-                            </p>
+                        {sessionInsight && (
+                            <div className="flex max-w-2xl items-start gap-3 rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 text-sm text-slate-300">
+                                <BarChart3 className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                                <p>{sessionInsight}</p>
+                            </div>
                         )}
                     </div>
 
-                    <div className="w-full lg:max-w-sm">
+                    <div className="w-full lg:max-w-md space-y-4">
                         <Card className="p-5 bg-slate-950/55 border-slate-800 backdrop-blur-sm">
                             <div className="flex items-center justify-between mb-4">
                                 <p className="text-[10px] uppercase tracking-[0.35em] font-black text-slate-500">
@@ -451,12 +641,14 @@ const HomePage = ({
                                     {getSeasonConfig(CURRENT_SEASON).fullName}
                                 </p>
                                 <p className="text-slate-400 text-sm leading-relaxed">
-                                    {CURRENT_SEASON === 's4'
-                                        ? 'Nouvelle esthétique, nouvelles archives, même domination.'
-                                        : 'Les anciennes campagnes restent gravées dans les archives.'}
+                                    Thème : {getSeasonConfig(CURRENT_SEASON).themeLabel}
                                 </p>
                             </div>
                         </Card>
+
+                        {SEASON_IDS.filter((seasonId) => SEASON_THEMES[seasonId].finalRank)
+                            .reverse()
+                            .map((seasonId) => <FinalSeasonCard key={seasonId} seasonId={seasonId} />)}
                     </div>
                 </div>
             </Card>
@@ -469,6 +661,9 @@ const HomePage = ({
                     <h2 className="text-xl md:text-2xl font-black italic uppercase text-white">
                         {selectedSeason === 'all' ? 'Toutes les saisons' : activeTheme.fullName}
                     </h2>
+                    <p className="text-slate-500 text-xs uppercase tracking-widest">
+                        {selectedSeason === 'all' ? 'Vue globale' : `Thème : ${activeTheme.themeLabel}`}
+                    </p>
                 </div>
                 <SeasonTabs value={selectedSeason} onChange={onSeasonChange} counts={counts} />
             </div>
@@ -483,7 +678,7 @@ const HomePage = ({
                         <button
                             key={session.id}
                             onClick={() => onSelectSession(session.id)}
-                            className="group relative bg-slate-900 border border-slate-800 p-6 rounded-3xl hover:border-cyan-500 transition-all text-left shadow-2xl overflow-hidden active:scale-95"
+                            className="group relative bg-slate-900 border border-slate-800 p-6 rounded-3xl hover:border-slate-600 transition-all text-left shadow-2xl overflow-hidden active:scale-[0.99]"
                         >
                             <Trophy className="absolute -bottom-4 -right-4 w-24 h-24 text-white/5 group-hover:text-cyan-500/10 transition-colors rotate-12" />
                             <div className="relative z-10 space-y-4">
@@ -492,12 +687,15 @@ const HomePage = ({
                                     <Icon className={`w-5 h-5 ${theme.primaryText}`} />
                                 </div>
 
-                                <h3 className="text-xl md:text-2xl font-black text-white group-hover:text-cyan-400 uppercase italic truncate">
+                                <h3 className={`text-xl md:text-2xl font-black text-white uppercase italic truncate ${theme.primaryText}`}>
                                     {session.shortLabel}
                                 </h3>
 
                                 <div className="space-y-1">
                                     <p className="text-slate-400 font-bold text-[11px]">{session.label}</p>
+                                    <p className="text-slate-500 text-[10px] uppercase tracking-widest">
+                                        {theme.fullName}
+                                    </p>
                                     <p className="text-slate-600 font-mono text-[10px] uppercase">
                                         Fin : {formatDisplayDate(extractSessionSortKey(session))}
                                     </p>
@@ -532,6 +730,8 @@ const HomePage = ({
                     </div>
                 )}
             </div>
+
+            {selectedSeason === 's5' && <Season5RecipeBook />}
         </div>
     );
 };
@@ -549,48 +749,10 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack, currentSeason }) => {
     const [seasonId, setSeasonId] = useState(currentSeason);
 
     const activeTheme = getSeasonConfig(seasonId);
-
-    const contributionAnalysis = useMemo(() => {
-        const values = Object.values(sessions)
-            .filter((s) => getSessionSeason(s) === seasonId)
-            .sort(sortSessionsDesc);
-
-        if (!values.length) return null;
-
-        const slice = values.slice(0, vdCountForAnalysis);
-        const acc = {};
-
-        slice.forEach((s) => {
-            s.members.forEach((m) => {
-                if (m.value === undefined || m.value === null) return;
-                if (normalizeName(m.name) === 'autre') return;
-                const key = normalizeName(m.name);
-                if (!acc[key]) {
-                    acc[key] = { key, name: m.name, sumPct: 0, count: 0 };
-                }
-                acc[key].sumPct += m.value;
-                acc[key].count += 1;
-            });
-        });
-
-        const alwaysHere = Object.values(acc).filter((m) => m.count === slice.length);
-        if (!alwaysHere.length) return null;
-
-        const withAvg = alwaysHere.map((m) => ({
-            ...m,
-            avgPct: m.sumPct / m.count,
-        }));
-
-        const bottom5 = withAvg
-            .sort((a, b) => a.avgPct - b.avgPct)
-            .slice(0, 5);
-
-        return {
-            totalSessions: slice.length,
-            playersCount: withAvg.length,
-            bottom5,
-        };
-    }, [sessions, vdCountForAnalysis, seasonId]);
+    const weakContributorAnalysis = useMemo(
+        () => buildWeakContributors(sessions, vdCountForAnalysis, seasonId),
+        [sessions, vdCountForAnalysis, seasonId]
+    );
 
     const adminCode = import.meta.env.VITE_ADMIN_CODE || "coucu";
 
@@ -650,6 +812,9 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack, currentSeason }) => {
                             </p>
                         </div>
                         <h2 className="text-3xl font-black text-white italic uppercase">PANNEAU DE GESTION CLOUD</h2>
+                        <p className="text-slate-500 text-xs uppercase tracking-widest">
+                            {getSeasonConfig(seasonId).fullName} — Thème : {getSeasonConfig(seasonId).themeLabel}
+                        </p>
                     </div>
 
                     <div className="flex items-center gap-2 text-[10px] text-slate-500">
@@ -673,8 +838,9 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack, currentSeason }) => {
                             onChange={(e) => setSeasonId(e.target.value)}
                             className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none text-sm focus:border-cyan-500"
                         >
-                            <option value="s4">Saison 4 — Robots & Ingénieurs</option>
-                            <option value="s3">Saison 3 — Archéologues & Dinosaures</option>
+                            {[...SEASON_IDS].reverse().map((id) => (
+                                <option key={id} value={id}>{SEASON_THEMES[id].fullName} — {SEASON_THEMES[id].themeLabel}</option>
+                            ))}
                         </select>
                     </div>
 
@@ -810,39 +976,54 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack, currentSeason }) => {
                 </button>
             </Card>
 
-            {contributionAnalysis && (
+            {weakContributorAnalysis && (
                 <Card className="p-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-black text-white uppercase tracking-widest">
-                            Plus faibles contributeurs
-                        </h3>
-                        <span className="text-[10px] text-slate-400 uppercase font-black">
-                            Sur {contributionAnalysis.totalSessions} dernières VD
+                    <div className="flex items-center justify-between gap-4">
+                        <div>
+                            <h3 className="text-sm font-black text-white uppercase tracking-widest">
+                                Plus faibles contributeurs
+                            </h3>
+                            <p className="text-[10px] text-slate-500 uppercase font-black mt-1">
+                                Joueurs présents dans la dernière VD enregistrée
+                            </p>
+                        </div>
+                        <span className="text-[10px] text-slate-400 uppercase font-black text-right">
+                            {weakContributorAnalysis.totalSessions} VD prises en compte
                         </span>
                     </div>
+
                     <p className="text-[10px] text-slate-500 uppercase font-black">
-                        Présents sur toutes ces VD : {contributionAnalysis.playersCount} joueurs
+                        Dernière VD : {weakContributorAnalysis.latestSession.shortLabel || weakContributorAnalysis.latestSession.label}
                     </p>
+
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs">
                             <thead className="bg-slate-950/50 text-slate-500 text-[9px] font-black uppercase tracking-widest font-mono">
                             <tr>
                                 <th className="px-4 py-2">Membre</th>
+                                <th className="px-4 py-2">Saisons</th>
                                 <th className="px-4 py-2 text-right">Moyenne %</th>
                                 <th className="px-4 py-2 text-right">Présence</th>
                             </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-800/50">
-                            {contributionAnalysis.bottom5.map((m) => (
+                            {weakContributorAnalysis.bottom5.map((m) => (
                                 <tr key={m.key}>
                                     <td className="px-4 py-2 text-white font-bold uppercase italic">
                                         {m.name}
+                                    </td>
+                                    <td className="px-4 py-2">
+                                        <div className="flex gap-2 flex-wrap">
+                                            {m.seasons.map((season) => (
+                                                <SeasonBadge key={season} seasonId={season} />
+                                            ))}
+                                        </div>
                                     </td>
                                     <td className="px-4 py-2 text-right text-cyan-400 font-mono">
                                         {m.avgPct.toFixed(2)}%
                                     </td>
                                     <td className="px-4 py-2 text-right text-slate-500 font-mono text-[11px]">
-                                        {m.count} / {contributionAnalysis.totalSessions} VD
+                                        {m.count} / {weakContributorAnalysis.totalSessions} VD
                                     </td>
                                 </tr>
                             ))}
@@ -895,11 +1076,12 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
                 <div className="flex flex-wrap items-center gap-3">
                     <SeasonBadge seasonId={seasonId} />
                     <p className={`text-[10px] uppercase font-black tracking-[0.35em] ${theme.primaryText}`}>
-                        Rapport de guerre
+                        Résultats de session
                     </p>
                 </div>
                 <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter">{data.label}</h2>
-                <p className="text-slate-500 text-sm">{theme.fullName}</p>
+                <p className="text-slate-400 text-sm">{theme.fullName}</p>
+                <p className="text-slate-600 text-xs uppercase tracking-widest">Thème : {theme.themeLabel}</p>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
@@ -1025,11 +1207,12 @@ const StatsPage = ({ sessionId, sessions, onBack, onSelectPlayer }) => {
     );
 };
 
-const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer, selectedSeason }) => {
-    const { hallOfFame, records } = globalStats;
+const HallOfFamePage = ({ hallData, onBack, onSelectPlayer, hofFilter, setHofFilter }) => {
+    const currentStats = hallData[hofFilter];
+    const { hallOfFame, records } = currentStats;
     const top10 = hallOfFame.slice(0, 10);
     const absoluteRecord = records[0];
-    const theme = getSeasonConfig(selectedSeason === 'all' ? CURRENT_SEASON : selectedSeason);
+    const theme = getSeasonConfig(hofFilter === 'all' ? CURRENT_SEASON : hofFilter);
 
     return (
         <div className="space-y-8 py-8 px-4">
@@ -1040,9 +1223,8 @@ const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer, selectedSeason })
                 <ChevronLeft className="w-5 h-5" /> Retour
             </button>
 
-            <div className={`border-l-4 ${theme.strongBorder} pl-4`}>
-                <div className="flex flex-wrap items-center gap-3 mb-2">
-                    {selectedSeason !== 'all' && <SeasonBadge seasonId={selectedSeason} />}
+            <div className={`border-l-4 ${theme.strongBorder} pl-4 space-y-3`}>
+                <div className="flex flex-wrap items-center gap-3">
                     <p className={`text-[10px] uppercase font-black tracking-[0.35em] ${theme.primaryText}`}>
                         Légendes de Log Horizon
                     </p>
@@ -1051,8 +1233,16 @@ const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer, selectedSeason })
                     Hall of Fame
                 </h2>
                 <p className="text-slate-400 text-sm">
-                    {selectedSeason === 'all' ? 'Classement cumulé toutes saisons' : `Classement cumulé ${theme.fullName}`}
+                    {hofFilter === 'all'
+                        ? 'Classement cumulé toutes saisons'
+                        : `Classement cumulé ${getSeasonConfig(hofFilter).fullName}`}
                 </p>
+                {hofFilter !== 'all' && (
+                    <p className="text-slate-600 text-xs uppercase tracking-widest">
+                        Thème : {getSeasonConfig(hofFilter).themeLabel}
+                    </p>
+                )}
+                <SmallFilterTabs items={HOF_FILTERS} value={hofFilter} onChange={setHofFilter} />
             </div>
 
             {absoluteRecord && (
@@ -1078,7 +1268,7 @@ const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer, selectedSeason })
                         <Trophy className={`w-5 h-5 ${theme.primaryText}`} />
                         Top 10 accumulé
                     </h3>
-                    {selectedSeason !== 'all' && <SeasonBadge seasonId={selectedSeason} />}
+                    {hofFilter !== 'all' && <SeasonBadge seasonId={hofFilter} />}
                 </div>
 
                 <div className="overflow-x-auto">
@@ -1089,6 +1279,7 @@ const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer, selectedSeason })
                             <th className="px-6 py-4">Membre</th>
                             <th className="px-8 py-4 text-right">Points Totaux</th>
                             <th className="px-8 py-4 text-right">Sessions</th>
+                            <th className="px-8 py-4">Saisons</th>
                         </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/50 text-xs">
@@ -1115,6 +1306,13 @@ const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer, selectedSeason })
                                 <td className="px-8 py-4 text-right text-slate-500 font-mono">
                                     {m.history.length}
                                 </td>
+                                <td className="px-8 py-4">
+                                    <div className="flex flex-wrap gap-2">
+                                        {m.seasons?.map((season) => (
+                                            <SeasonBadge key={season} seasonId={season} />
+                                        ))}
+                                    </div>
+                                </td>
                             </tr>
                         ))}
                         </tbody>
@@ -1125,14 +1323,17 @@ const HallOfFamePage = ({ globalStats, onBack, onSelectPlayer, selectedSeason })
     );
 };
 
-const PlayerProfilePage = ({ playerName, globalStats, onBack, selectedSeason }) => {
+const PlayerProfilePage = ({ playerName, hallData, onBack }) => {
+    const globalStats = hallData.all;
     const key = normalizeName(playerName);
     const player = globalStats.memberTotals[key];
+    const [profileFilter, setProfileFilter] = useState('all');
+
     if (!player) return null;
 
-    const theme = getSeasonConfig(selectedSeason === 'all' ? CURRENT_SEASON : selectedSeason);
+    const filteredHistory = getProfileHistory(player, profileFilter);
 
-    const chartData = player.history.map((h) => ({
+    const chartData = filteredHistory.map((h) => ({
         name: h.label,
         percent: h.value,
         points: h.points,
@@ -1140,16 +1341,21 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack, selectedSeason }) 
         season: h.season,
     }));
 
-    const first5 = player.history.slice(-5);
+    const first5 = filteredHistory.slice(-5);
     const trend =
         first5.length >= 2
             ? first5[first5.length - 1].value - first5[0].value
             : 0;
 
-    const totalPoints = player.totalPoints || player.history.reduce(
+    const totalPoints = filteredHistory.reduce(
         (sum, h) => sum + (h.points || Math.round((h.totalPointsLog * h.value) / 100)),
         0
     );
+
+    const seasonsPlayed = Array.from(new Set(player.history.map((h) => h.season)));
+    const commonEligible = seasonsPlayed.length >= 2;
+
+    const visibleFilterItems = PROFILE_FILTERS.filter((f) => f.id !== 'common' || commonEligible);
 
     return (
         <div className="space-y-8 py-8 px-4">
@@ -1161,40 +1367,45 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack, selectedSeason }) 
             </button>
 
             <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
-                <div className={`border-l-4 ${theme.strongBorder} pl-4`}>
-                    <div className="flex flex-wrap items-center gap-3 mb-2">
-                        {selectedSeason !== 'all' && <SeasonBadge seasonId={selectedSeason} />}
-                        <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest">
+                <div className="border-l-4 border-cyan-500 pl-4 space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {seasonsPlayed.map((season) => (
+                            <SeasonBadge key={season} seasonId={season} />
+                        ))}
+                    </div>
+                    <div>
+                        <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest mb-2">
                             Profil joueur
                         </p>
+                        <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter">
+                            {player.name}
+                        </h2>
                     </div>
-                    <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter">
-                        {player.name}
-                    </h2>
+                    <SmallFilterTabs items={visibleFilterItems} value={profileFilter} onChange={setProfileFilter} />
                 </div>
 
                 <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
-                            Sessions suivies
+                            Sessions visibles
                         </p>
                         <p className="text-lg font-black text-white text-right">
-                            {player.history.length}
+                            {filteredHistory.length}
                         </p>
                     </Card>
 
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
-                            % cumulé sur VD
+                            % cumulé visible
                         </p>
                         <p className="text-lg font-black text-cyan-400 text-right">
-                            {player.totalPct.toFixed(1)}%
+                            {filteredHistory.reduce((sum, h) => sum + h.value, 0).toFixed(1)}%
                         </p>
                     </Card>
 
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
-                            Points réels cumulés
+                            Points visibles
                         </p>
                         <p className="text-lg font-black text-fuchsia-400 text-right">
                             {totalPoints.toLocaleString()}
@@ -1218,10 +1429,19 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack, selectedSeason }) 
             </div>
 
             <Card className="p-6 md:p-8">
-                <h3 className="text-xl font-black text-white uppercase italic mb-6 flex items-center gap-2">
-                    <BarChart3 className={`w-5 h-5 ${theme.primaryText}`} />
-                    Progression sur les sessions
-                </h3>
+                <div className="flex items-center justify-between gap-4 mb-6">
+                    <h3 className="text-xl font-black text-white uppercase italic flex items-center gap-2">
+                        <BarChart3 className="w-5 h-5 text-cyan-400" />
+                        Progression sur les sessions
+                    </h3>
+                    <div className="text-[10px] uppercase tracking-[0.3em] font-black text-slate-500">
+                        {profileFilter === 'all'
+                            ? 'Toutes saisons'
+                            : profileFilter === 'common'
+                                ? 'Saisons communes'
+                                : getSeasonConfig(profileFilter).fullName}
+                    </div>
+                </div>
 
                 <div className="h-[350px]">
                     <ResponsiveContainer width="100%" height="100%">
@@ -1293,7 +1513,7 @@ const PlayerProfilePage = ({ playerName, globalStats, onBack, selectedSeason }) 
                         </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/50 text-xs">
-                        {player.history.map((h) => (
+                        {filteredHistory.map((h) => (
                             <tr key={h.sessionId} className="hover:bg-cyan-600/5">
                                 <td className="px-6 py-3 text-white">{h.label}</td>
                                 <td className="px-6 py-3">
@@ -1324,8 +1544,8 @@ export default function App() {
     const [selectedPlayer, setSelectedPlayer] = useState(null);
     const [sessions, setSessions] = useState({});
     const [user, setUser] = useState(null);
-    const [randomHomeMessage, setRandomHomeMessage] = useState("");
     const [selectedSeason, setSelectedSeason] = useState(CURRENT_SEASON);
+    const [hofFilter, setHofFilter] = useState('all');
 
     useEffect(() => {
         const initAuth = async () => {
@@ -1354,57 +1574,20 @@ export default function App() {
         return () => unsub();
     }, [user]);
 
-    useEffect(() => {
-        const values = Object.values(sessions)
-            .filter((session) => selectedSeason === 'all' || getSessionSeason(session) === selectedSeason)
-            .sort(sortSessionsDesc);
+    const sessionInsight = useMemo(
+        () => getSessionInsight(sessions, selectedSeason),
+        [sessions, selectedSeason]
+    );
 
-        if (!values.length) {
-            setRandomHomeMessage("");
-            return;
-        }
-
-        const latest = values[0];
-        const members = latest.members || [];
-        if (!members.length) {
-            setRandomHomeMessage("");
-            return;
-        }
-
-        const names = members.map((m) => m.name);
-        const shuffled = [...names].sort(() => Math.random() - 0.5);
-        const hasAtLeastTwo = shuffled.length >= 2;
-
-        let msg = "";
-        if (!hasAtLeastTwo) {
-            const a = shuffled[0];
-            const pattern = pickRandom(SOLO_PATTERNS);
-            msg = pattern(a);
-        } else {
-            const a = shuffled[0];
-            const b = shuffled[1];
-            const useDuo = Math.random() < 0.5;
-            if (useDuo) {
-                const pattern = pickRandom(DUO_PATTERNS);
-                msg = pattern(a, b);
-            } else {
-                const pattern = pickRandom(SOLO_PATTERNS);
-                msg = pattern(a);
-            }
-        }
-
-        setRandomHomeMessage(msg);
-    }, [sessions, selectedSeason]);
-
-    const activeStats = useMemo(() => {
+    const allHallData = useMemo(() => {
         if (!sessions || Object.keys(sessions).length === 0) return null;
-        return buildGlobalStats(sessions, selectedSeason);
-    }, [sessions, selectedSeason]);
+        return buildCrossSeasonHallOfFame(sessions);
+    }, [sessions]);
 
     const allMembersList = useMemo(() => {
-        if (!activeStats) return [];
-        return Object.values(activeStats.memberTotals).map((m) => m.name);
-    }, [activeStats]);
+        if (!allHallData?.all) return [];
+        return Object.values(allHallData.all.memberTotals).map((m) => m.name);
+    }, [allHallData]);
 
     const handleImport = async (s) => {
         if (!user) return;
@@ -1427,13 +1610,13 @@ export default function App() {
     };
 
     const openPlayer = (name) => {
-        if (!activeStats) return;
+        if (!allHallData?.all) return;
         const key = normalizeName(name);
-        if (!activeStats.memberTotals[key]) {
-            alert("Ce membre n'existe pas encore dans la saison sélectionnée.");
+        if (!allHallData.all.memberTotals[key]) {
+            alert("Ce membre n'existe pas encore dans les archives.");
             return;
         }
-        setSelectedPlayer(activeStats.memberTotals[key].name);
+        setSelectedPlayer(allHallData.all.memberTotals[key].name);
         setPreviousView(view);
         setView('player');
     };
@@ -1454,7 +1637,7 @@ export default function App() {
                                 LOG HORIZON
                             </span>
                             <span className="block text-[8px] font-black uppercase tracking-widest text-cyan-400 leading-none mt-1">
-                                Archives multisaissons
+                                Archives multi-saisons
                             </span>
                         </div>
                     </div>
@@ -1462,7 +1645,7 @@ export default function App() {
                     <div className="flex flex-wrap items-center gap-4 justify-between md:justify-end">
                         <PlayerSearch
                             allMembers={allMembersList}
-                            hasStats={!!activeStats}
+                            hasStats={!!allHallData?.all}
                             onSelectPlayer={openPlayer}
                         />
 
@@ -1496,7 +1679,7 @@ export default function App() {
                             setPreviousView('home');
                             setView('hall');
                         }}
-                        randomMessage={randomHomeMessage}
+                        sessionInsight={sessionInsight}
                     />
                 )}
 
@@ -1519,21 +1702,21 @@ export default function App() {
                     />
                 )}
 
-                {view === 'hall' && activeStats && (
+                {view === 'hall' && allHallData && (
                     <HallOfFamePage
-                        globalStats={activeStats}
+                        hallData={allHallData}
                         onBack={() => setView(previousView || 'home')}
                         onSelectPlayer={openPlayer}
-                        selectedSeason={selectedSeason}
+                        hofFilter={hofFilter}
+                        setHofFilter={setHofFilter}
                     />
                 )}
 
-                {view === 'player' && selectedPlayer && activeStats && (
+                {view === 'player' && selectedPlayer && allHallData && (
                     <PlayerProfilePage
                         playerName={selectedPlayer}
-                        globalStats={activeStats}
+                        hallData={allHallData}
                         onBack={() => setView(previousView || 'home')}
-                        selectedSeason={selectedSeason}
                     />
                 )}
             </main>
