@@ -1,14 +1,20 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from 'firebase/firestore';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import {
+    getAuth,
+    GoogleAuthProvider,
+    onAuthStateChanged,
+    signInWithPopup,
+    signOut,
+} from 'firebase/auth';
 import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
     PieChart, Pie, LineChart, Line, CartesianGrid, Legend
 } from 'recharts';
 import {
     Trophy, ChevronLeft, Sword, Zap, Crown, BarChart3, Shield, ChevronRight,
-    Plus, Trash2, Lock, Medal, Award, Bot, Pickaxe, Filter, Layers3, CookingPot
+    Plus, Trash2, Lock, LogOut, Medal, Award, Bot, Pickaxe, Layers3, CookingPot
 } from 'lucide-react';
 import Season5RecipeBook from './components/Season5RecipeBook.jsx';
 
@@ -27,6 +33,33 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 const appId = "archives-vd-loghorizon";
+const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase();
+
+const isAuthorizedGoogleUser = (user) => Boolean(
+    ADMIN_EMAIL
+    && user?.email?.toLowerCase() === ADMIN_EMAIL
+    && user.emailVerified
+    && user.providerData?.some((provider) => provider.providerId === 'google.com')
+);
+
+const getGoogleAuthErrorMessage = (error) => {
+    if (error?.code === 'auth/unauthorized-domain') {
+        return 'Ce domaine n’est pas autorisé dans Firebase Authentication. Ajoute-le dans Authentication → Settings → Authorized domains.';
+    }
+    if (error?.code === 'auth/operation-not-allowed') {
+        return 'La connexion Google n’est pas activée dans Firebase Authentication.';
+    }
+    if (error?.code === 'auth/popup-blocked') {
+        return 'Le navigateur a bloqué la fenêtre Google. Autorise les fenêtres pop-up pour ce site, puis réessaie.';
+    }
+    if (error?.code === 'auth/popup-closed-by-user') {
+        return 'La fenêtre Google s’est fermée avant la fin de la connexion. Réessaie.';
+    }
+    if (error?.code === 'auth/network-request-failed') {
+        return 'Connexion réseau impossible pendant la connexion Google. Vérifie ta connexion et réessaie.';
+    }
+    return `La connexion Google a échoué${error?.code ? ` (${error.code})` : ''}. Vérifie la configuration Firebase puis réessaie.`;
+};
 
 // --- CONSTS / UTILS ---
 const CURRENT_SEASON = 's5';
@@ -114,7 +147,7 @@ const MEMBER_COLORS = [
 const PROFILE_FILTERS = [
     { id: 'all', label: 'Toutes', icon: Layers3 },
     ...SEASON_IDS.map((id) => ({ id, label: SEASON_THEMES[id].short, icon: SEASON_THEMES[id].icon })),
-    { id: 'common', label: 'Communes', icon: Filter },
+    { id: 'compare', label: 'Comparatif', icon: BarChart3 },
 ];
 
 const HOF_FILTERS = [
@@ -251,13 +284,31 @@ const getProfileHistory = (player, mode) => {
     if (mode === 'all') return history;
     if (SEASON_THEMES[mode]) return history.filter((h) => h.season === mode);
 
-    if (mode === 'common') {
-        const seasons = new Set(history.map((h) => h.season));
-        const shouldHaveCommon = seasons.size >= 2;
-        return shouldHaveCommon ? history : [];
-    }
-
     return history;
+};
+
+const getHistoryPoints = (entry) => entry.points || Math.round(((entry.totalPointsLog || 0) * entry.value) / 100);
+
+const getProfileSeasonComparisons = (player) => {
+    const sessionsBySeason = player.history.reduce((seasons, entry) => {
+        if (!seasons[entry.season]) seasons[entry.season] = [];
+        seasons[entry.season].push(entry);
+        return seasons;
+    }, {});
+
+    return Object.entries(sessionsBySeason)
+        .map(([season, history]) => {
+            const bestSession = history.reduce((best, entry) => entry.value > best.value ? entry : best);
+            return {
+                season,
+                label: getSeasonConfig(season).short,
+                sessionCount: history.length,
+                averagePct: history.reduce((sum, entry) => sum + entry.value, 0) / history.length,
+                bestSession,
+                totalPoints: history.reduce((sum, entry) => sum + getHistoryPoints(entry), 0),
+            };
+        })
+        .sort((a, b) => SEASON_IDS.indexOf(a.season) - SEASON_IDS.indexOf(b.season));
 };
 
 const buildWeakContributors = (sessionsObj, lastCount = 5, seasonId = 'all') => {
@@ -408,7 +459,7 @@ const SmallFilterTabs = ({ items, value, onChange }) => (
         {items.map((item) => {
             const Icon = item.icon;
             const active = value === item.id;
-            const theme = item.id === 'all' || item.id === 'common'
+            const theme = item.id === 'all' || item.id === 'compare'
                 ? getSeasonConfig(CURRENT_SEASON)
                 : getSeasonConfig(item.id);
             return (
@@ -736,9 +787,21 @@ const HomePage = ({
     );
 };
 
-const AdminPage = ({ onImport, sessions, onDelete, onBack, currentSeason }) => {
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [passcode, setPasscode] = useState("");
+const AdminPage = ({
+    onImport,
+    sessions,
+    onDelete,
+    onBack,
+    currentSeason,
+    isAdmin,
+    adminEmail,
+    currentUserEmail,
+    adminConfigured,
+    onAdminSignIn,
+    onAdminSignOut,
+}) => {
+    const [authError, setAuthError] = useState('');
+    const [authBusy, setAuthBusy] = useState(false);
     const [csvData, setCsvData] = useState("");
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
@@ -754,36 +817,62 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack, currentSeason }) => {
         [sessions, vdCountForAnalysis, seasonId]
     );
 
-    const adminCode = import.meta.env.VITE_ADMIN_CODE || "coucu";
-
-    if (!isAuthenticated) {
+    if (!isAdmin) {
         return (
             <div className="min-h-[60vh] flex items-center justify-center px-4">
-                <Card className="p-8 w-full max-w-sm text-center space-y-6">
-                    <Shield className="w-12 h-12 mx-auto text-cyan-500" />
-                    <h2 className="text-xl font-black text-white uppercase italic tracking-widest">ACCÈS SÉCURISÉ</h2>
-                    <form
-                        onSubmit={(e) => {
-                            e.preventDefault();
-                            adminCode === passcode ? setIsAuthenticated(true) : setError("Invalide");
-                        }}
-                        className="space-y-4"
-                    >
-                        <input
-                            type="password"
-                            placeholder="Code secret"
-                            value={passcode}
-                            onChange={e => setPasscode(e.target.value)}
-                            className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-center text-white outline-none focus:border-cyan-500 font-black tracking-widest"
-                        />
-                        {error && <p className="text-red-500 text-xs font-bold uppercase">{error}</p>}
-                        <button className="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black uppercase py-4 rounded-xl">
-                            Entrer
+                <Card className="w-full max-w-md space-y-6 p-8">
+                    <div className="space-y-3 text-center">
+                        <Shield className="mx-auto h-12 w-12 text-rose-300" />
+                        <h2 className="text-xl font-black uppercase italic tracking-widest text-white">Administration</h2>
+                        <p className="text-sm text-slate-400">Utilise ton compte Google habituel. Aucun compte séparé à créer.</p>
+                    </div>
+
+                    {!adminConfigured && (
+                        <p className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs leading-relaxed text-amber-200">
+                            L’accès administrateur n’est pas configuré sur ce déploiement. Renseigne ton adresse Google dans <code>VITE_ADMIN_EMAIL</code>.
+                        </p>
+                    )}
+
+                    {currentUserEmail && !isAdmin && (
+                        <p className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs leading-relaxed text-amber-200">
+                            Le compte {currentUserEmail} n’a pas accès à l’administration. Choisis l’adresse Google autorisée.
+                        </p>
+                    )}
+
+                    <div className="space-y-4">
+                        <button
+                            type="button"
+                            disabled={!adminConfigured || authBusy}
+                            onClick={async () => {
+                                setAuthError('');
+                                setAuthBusy(true);
+                                try {
+                                    await onAdminSignIn();
+                                } catch (err) {
+                                    console.error('Google sign-in error:', err);
+                                    setAuthError(getGoogleAuthErrorMessage(err));
+                                } finally {
+                                    setAuthBusy(false);
+                                }
+                            }}
+                            className="flex w-full items-center justify-center gap-3 rounded-xl bg-white py-4 font-bold text-slate-900 transition-colors hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            <svg aria-hidden="true" viewBox="0 0 48 48" className="h-5 w-5">
+                                <path fill="#4285F4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11c-.5 2.5-1.9 4.6-4 6v5h6.5c3.8-3.5 6.1-8.6 6.1-14.7Z" />
+                                <path fill="#34A853" d="M24 44c5.5 0 10.1-1.8 13.5-4.8l-6.5-5c-1.8 1.2-4.1 2-7 2-5.4 0-10-3.7-11.6-8.6H5.7v5.2A20 20 0 0 0 24 44Z" />
+                                <path fill="#FBBC05" d="M12.4 27.6a12 12 0 0 1 0-7.2v-5.2H5.7a20 20 0 0 0 0 17.6l6.7-5.2Z" />
+                                <path fill="#EA4335" d="M24 11.8c3 0 5.7 1 7.8 3.1l5.8-5.8A19.4 19.4 0 0 0 24 4 20 20 0 0 0 5.7 15.2l6.7 5.2c1.6-4.9 6.2-8.6 11.6-8.6Z" />
+                            </svg>
+                            {authBusy ? 'Connexion…' : 'Continuer avec Google'}
                         </button>
-                        <button type="button" onClick={onBack} className="text-slate-600 text-[10px] font-black uppercase">
+                        {authError && <p role="alert" className="text-sm font-semibold text-red-300">{authError}</p>}
+                    </div>
+
+                    <div className="flex flex-col items-center gap-4">
+                        <button type="button" onClick={onBack} className="text-[10px] font-black uppercase text-slate-600 hover:text-white">
                             Retour
                         </button>
-                    </form>
+                    </div>
                 </Card>
             </div>
         );
@@ -795,12 +884,23 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack, currentSeason }) => {
 
     return (
         <div className="py-12 max-w-4xl mx-auto px-4 space-y-8">
-            <button
-                onClick={onBack}
-                className="flex items-center gap-2 text-slate-500 uppercase font-black text-[10px] hover:text-white transition-colors"
-            >
-                <ChevronLeft className="w-4 h-4" /> Annuler
-            </button>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <button
+                    onClick={onBack}
+                    className="flex items-center gap-2 text-slate-500 uppercase font-black text-[10px] hover:text-white transition-colors"
+                >
+                    <ChevronLeft className="w-4 h-4" /> Retour
+                </button>
+                <div className="flex items-center gap-3">
+                    {adminEmail && <span className="text-xs text-slate-500">{adminEmail}</span>}
+                    <button
+                        onClick={onAdminSignOut}
+                        className="flex items-center gap-2 rounded-lg border border-slate-800 px-3 py-2 text-[10px] font-black uppercase text-slate-400 transition-colors hover:border-rose-500/40 hover:text-rose-200"
+                    >
+                        <LogOut className="h-3.5 w-3.5" /> Déconnexion
+                    </button>
+                </div>
+            </div>
 
             <Card className={`p-6 md:p-8 space-y-6 shadow-2xl bg-gradient-to-br ${activeTheme.panelGradient}`}>
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -965,10 +1065,14 @@ const AdminPage = ({ onImport, sessions, onDelete, onBack, currentSeason }) => {
                             members,
                         };
 
-                        await onImport(payload);
-                        setSuccess(`Session ${theme.short} publiée.`);
-                        setCsvData("");
-                        setTotalPoints("");
+                        try {
+                            await onImport(payload);
+                            setSuccess(`Session ${theme.short} publiée.`);
+                            setCsvData("");
+                            setTotalPoints("");
+                        } catch {
+                            setError("Publication refusée. Vérifie les règles Firestore et ton compte administrateur.");
+                        }
                     }}
                     className={`w-full ${activeTheme.buttonClass} font-black uppercase py-4 rounded-xl shadow-lg flex items-center justify-center gap-2`}
                 >
@@ -1331,15 +1435,25 @@ const PlayerProfilePage = ({ playerName, hallData, onBack }) => {
 
     if (!player) return null;
 
-    const filteredHistory = getProfileHistory(player, profileFilter);
-
-    const chartData = filteredHistory.map((h) => ({
-        name: h.label,
-        percent: h.value,
-        points: h.points,
-        estimatedPoints: h.points || Math.round((h.totalPointsLog * h.value) / 100),
-        season: h.season,
-    }));
+    const seasonComparisons = getProfileSeasonComparisons(player);
+    const isCompare = profileFilter === 'compare';
+    const filteredHistory = isCompare
+        ? [...player.history].sort((a, b) => a.endDate.localeCompare(b.endDate))
+        : getProfileHistory(player, profileFilter);
+    const chartData = isCompare
+        ? seasonComparisons.map((season) => ({
+            name: season.label,
+            percent: Number(season.averagePct.toFixed(2)),
+            estimatedPoints: season.totalPoints,
+            season: season.season,
+        }))
+        : filteredHistory.map((h) => ({
+            name: h.label,
+            percent: h.value,
+            points: h.points,
+            estimatedPoints: getHistoryPoints(h),
+            season: h.season,
+        }));
 
     const first5 = filteredHistory.slice(-5);
     const trend =
@@ -1347,15 +1461,15 @@ const PlayerProfilePage = ({ playerName, hallData, onBack }) => {
             ? first5[first5.length - 1].value - first5[0].value
             : 0;
 
-    const totalPoints = filteredHistory.reduce(
-        (sum, h) => sum + (h.points || Math.round((h.totalPointsLog * h.value) / 100)),
-        0
-    );
+    const totalPoints = filteredHistory.reduce((sum, entry) => sum + getHistoryPoints(entry), 0);
+    const averageSeasonPct = seasonComparisons.length
+        ? seasonComparisons.reduce((sum, season) => sum + season.averagePct, 0) / seasonComparisons.length
+        : 0;
+    const bestSeason = [...seasonComparisons].sort((a, b) => b.averagePct - a.averagePct)[0];
 
     const seasonsPlayed = Array.from(new Set(player.history.map((h) => h.season)));
-    const commonEligible = seasonsPlayed.length >= 2;
-
-    const visibleFilterItems = PROFILE_FILTERS.filter((f) => f.id !== 'common' || commonEligible);
+    const compareEligible = seasonComparisons.length >= 2;
+    const visibleFilterItems = PROFILE_FILTERS.filter((filter) => filter.id !== 'compare' || compareEligible);
 
     return (
         <div className="space-y-8 py-8 px-4">
@@ -1387,25 +1501,27 @@ const PlayerProfilePage = ({ playerName, hallData, onBack }) => {
                 <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
-                            Sessions visibles
+                            {isCompare ? 'Saisons comparées' : 'Sessions visibles'}
                         </p>
                         <p className="text-lg font-black text-white text-right">
-                            {filteredHistory.length}
+                            {isCompare ? seasonComparisons.length : filteredHistory.length}
                         </p>
                     </Card>
 
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
-                            % cumulé visible
+                            {isCompare ? 'Moyenne par saison' : '% cumulé visible'}
                         </p>
                         <p className="text-lg font-black text-cyan-400 text-right">
-                            {filteredHistory.reduce((sum, h) => sum + h.value, 0).toFixed(1)}%
+                            {isCompare
+                                ? `${averageSeasonPct.toFixed(1)}%`
+                                : `${filteredHistory.reduce((sum, h) => sum + h.value, 0).toFixed(1)}%`}
                         </p>
                     </Card>
 
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
-                            Points visibles
+                            {isCompare ? 'Points cumulés' : 'Points visibles'}
                         </p>
                         <p className="text-lg font-black text-fuchsia-400 text-right">
                             {totalPoints.toLocaleString()}
@@ -1414,15 +1530,16 @@ const PlayerProfilePage = ({ playerName, hallData, onBack }) => {
 
                     <Card className="px-4 py-3">
                         <p className="text-[8px] uppercase font-black text-slate-500">
-                            Tendance 5 dernières
+                            {isCompare ? 'Meilleure moyenne' : 'Tendance 5 dernières'}
                         </p>
                         <p
                             className={`text-lg font-black text-right ${
-                                trend >= 0 ? 'text-emerald-400' : 'text-red-400'
+                                isCompare || trend >= 0 ? 'text-emerald-400' : 'text-red-400'
                             }`}
                         >
-                            {trend >= 0 ? '+' : ''}
-                            {trend.toFixed(1)}%
+                            {isCompare
+                                ? (bestSeason ? `${bestSeason.label} · ${bestSeason.averagePct.toFixed(1)}%` : '—')
+                                : `${trend >= 0 ? '+' : ''}${trend.toFixed(1)}%`}
                         </p>
                     </Card>
                 </div>
@@ -1432,13 +1549,13 @@ const PlayerProfilePage = ({ playerName, hallData, onBack }) => {
                 <div className="flex items-center justify-between gap-4 mb-6">
                     <h3 className="text-xl font-black text-white uppercase italic flex items-center gap-2">
                         <BarChart3 className="w-5 h-5 text-cyan-400" />
-                        Progression sur les sessions
+                        {isCompare ? 'Comparaison entre les saisons' : 'Progression sur les sessions'}
                     </h3>
                     <div className="text-[10px] uppercase tracking-[0.3em] font-black text-slate-500">
-                        {profileFilter === 'all'
-                            ? 'Toutes saisons'
-                            : profileFilter === 'common'
-                                ? 'Saisons communes'
+                        {isCompare
+                            ? 'Moyennes par saison'
+                            : profileFilter === 'all'
+                                ? 'Toutes saisons'
                                 : getSeasonConfig(profileFilter).fullName}
                     </div>
                 </div>
@@ -1464,8 +1581,8 @@ const PlayerProfilePage = ({ playerName, hallData, onBack }) => {
                                                     className="text-xs text-slate-200 font-mono"
                                                 >
                                                     {entry.dataKey === 'percent'
-                                                        ? `Part de la session : ${entry.value}%`
-                                                        : `Part du score guilde : ${entry.value.toLocaleString()} pts`}
+                                                        ? `${isCompare ? 'Moyenne de contribution' : 'Part de la session'} : ${entry.value}%`
+                                                        : `${isCompare ? 'Points cumulés' : 'Part du score guilde'} : ${entry.value.toLocaleString()} pts`}
                                                 </p>
                                             ))}
                                         </div>
@@ -1480,7 +1597,7 @@ const PlayerProfilePage = ({ playerName, hallData, onBack }) => {
                                 stroke="#22d3ee"
                                 strokeWidth={2}
                                 dot={{ r: 3 }}
-                                name="% de la session"
+                                name={isCompare ? 'Contribution moyenne' : '% de la session'}
                             />
                             <Line
                                 yAxisId="right"
@@ -1489,7 +1606,7 @@ const PlayerProfilePage = ({ playerName, hallData, onBack }) => {
                                 stroke="#d946ef"
                                 strokeWidth={2}
                                 dot={{ r: 3 }}
-                                name="Part du score guilde"
+                                name={isCompare ? 'Points cumulés' : 'Part du score guilde'}
                             />
                         </LineChart>
                     </ResponsiveContainer>
@@ -1499,35 +1616,57 @@ const PlayerProfilePage = ({ playerName, hallData, onBack }) => {
             <Card className="overflow-hidden">
                 <div className="p-4 border-b border-slate-800">
                     <p className="text-[10px] uppercase font-black text-slate-500 tracking-widest">
-                        Historique détaillé
+                        {isCompare ? 'Détail par saison' : 'Historique détaillé'}
                     </p>
                 </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left">
                         <thead className="bg-slate-950/50 text-slate-500 text-[9px] font-black uppercase tracking-widest font-mono">
-                        <tr>
-                            <th className="px-6 py-3">Session</th>
-                            <th className="px-6 py-3">Saison</th>
-                            <th className="px-6 py-3 text-right">Part (%)</th>
-                            <th className="px-6 py-3 text-right">Points Réels</th>
-                        </tr>
+                        {isCompare ? (
+                            <tr>
+                                <th className="px-6 py-3">Saison</th>
+                                <th className="px-6 py-3 text-right">Sessions</th>
+                                <th className="px-6 py-3 text-right">Contribution moyenne</th>
+                                <th className="px-6 py-3">Meilleure session</th>
+                                <th className="px-6 py-3 text-right">Points cumulés</th>
+                            </tr>
+                        ) : (
+                            <tr>
+                                <th className="px-6 py-3">Session</th>
+                                <th className="px-6 py-3">Saison</th>
+                                <th className="px-6 py-3 text-right">Part (%)</th>
+                                <th className="px-6 py-3 text-right">Points réels</th>
+                            </tr>
+                        )}
                         </thead>
                         <tbody className="divide-y divide-slate-800/50 text-xs">
-                        {filteredHistory.map((h) => (
-                            <tr key={h.sessionId} className="hover:bg-cyan-600/5">
-                                <td className="px-6 py-3 text-white">{h.label}</td>
-                                <td className="px-6 py-3">
-                                    <SeasonBadge seasonId={h.season} />
-                                </td>
-                                <td className="px-6 py-3 text-right text-cyan-400 font-mono">
-                                    {h.value}%
-                                </td>
-                                <td className="px-6 py-3 text-right text-slate-400 font-mono">
-                                    {(h.points || Math.round((h.totalPointsLog * h.value) / 100)).toLocaleString()}{' '}
-                                    <span className="text-[8px] uppercase opacity-40">Pts</span>
-                                </td>
-                            </tr>
-                        ))}
+                        {isCompare ? (
+                            seasonComparisons.map((season) => (
+                                <tr key={season.season} className="hover:bg-cyan-600/5">
+                                    <td className="px-6 py-3"><SeasonBadge seasonId={season.season} /></td>
+                                    <td className="px-6 py-3 text-right text-slate-300 font-mono">{season.sessionCount}</td>
+                                    <td className="px-6 py-3 text-right text-cyan-400 font-mono">{season.averagePct.toFixed(1)}%</td>
+                                    <td className="px-6 py-3 text-white">
+                                        {season.bestSession.label}
+                                        <span className="ml-2 text-slate-500 font-mono">{season.bestSession.value}%</span>
+                                    </td>
+                                    <td className="px-6 py-3 text-right text-slate-400 font-mono">
+                                        {season.totalPoints.toLocaleString()} <span className="text-[8px] uppercase opacity-40">Pts</span>
+                                    </td>
+                                </tr>
+                            ))
+                        ) : (
+                            filteredHistory.map((h) => (
+                                <tr key={h.sessionId} className="hover:bg-cyan-600/5">
+                                    <td className="px-6 py-3 text-white">{h.label}</td>
+                                    <td className="px-6 py-3"><SeasonBadge seasonId={h.season} /></td>
+                                    <td className="px-6 py-3 text-right text-cyan-400 font-mono">{h.value}%</td>
+                                    <td className="px-6 py-3 text-right text-slate-400 font-mono">
+                                        {getHistoryPoints(h).toLocaleString()} <span className="text-[8px] uppercase opacity-40">Pts</span>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
                         </tbody>
                     </table>
                 </div>
@@ -1544,35 +1683,31 @@ export default function App() {
     const [selectedPlayer, setSelectedPlayer] = useState(null);
     const [sessions, setSessions] = useState({});
     const [user, setUser] = useState(null);
+    const [dataConnected, setDataConnected] = useState(false);
     const [selectedSeason, setSelectedSeason] = useState(CURRENT_SEASON);
     const [hofFilter, setHofFilter] = useState('all');
 
     useEffect(() => {
-        const initAuth = async () => {
-            try {
-                await signInAnonymously(auth);
-            } catch (err) {
-                console.error("Auth Error:", err);
-            }
-        };
-        initAuth();
         const unsubscribe = onAuthStateChanged(auth, setUser);
         return () => unsubscribe();
     }, []);
 
     useEffect(() => {
-        if (!user) return;
         const unsub = onSnapshot(
             collection(db, 'artifacts', appId, 'public', 'data', 'sessions'),
             (snap) => {
                 const d = {};
                 snap.forEach(doc => { d[doc.id] = doc.data(); });
                 setSessions(d);
+                setDataConnected(true);
             },
-            (err) => console.error("Firestore error:", err)
+            (err) => {
+                setDataConnected(false);
+                console.error("Firestore error:", err);
+            }
         );
         return () => unsub();
-    }, [user]);
+    }, []);
 
     const sessionInsight = useMemo(
         () => getSessionInsight(sessions, selectedSeason),
@@ -1589,19 +1724,35 @@ export default function App() {
         return Object.values(allHallData.all.memberTotals).map((m) => m.name);
     }, [allHallData]);
 
+    const isAdmin = isAuthorizedGoogleUser(user);
+
+    const handleAdminSignIn = async () => {
+        if (!ADMIN_EMAIL) throw new Error('Admin email is not configured.');
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account', login_hint: ADMIN_EMAIL });
+        const credential = await signInWithPopup(auth, provider);
+        setUser(credential.user);
+    };
+
+    const handleAdminSignOut = async () => {
+        await signOut(auth);
+        setView('home');
+    };
+
     const handleImport = async (s) => {
-        if (!user) return;
+        if (!isAdmin) return;
         try {
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', s.id), s);
             setSelectedSeason(s.season || CURRENT_SEASON);
             setView('home');
         } catch (err) {
             console.error("Import error:", err);
+            throw err;
         }
     };
 
     const handleDelete = async (id) => {
-        if (!user || !window.confirm("Supprimer ?")) return;
+        if (!isAdmin || !window.confirm("Supprimer ?")) return;
         try {
             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id));
         } catch (err) {
@@ -1652,12 +1803,12 @@ export default function App() {
                         <div className="flex items-center gap-3">
                             <SeasonBadge seasonId={selectedSeason === 'all' ? CURRENT_SEASON : selectedSeason} />
                             <div
-                                className={`w-2.5 h-2.5 rounded-full ${
-                                    user
-                                        ? 'bg-green-500 animate-pulse shadow-[0_0_10px_rgba(34,197,94,0.5)]'
-                                        : 'bg-red-500'
+                                title={dataConnected ? 'Archives synchronisées' : 'Connexion aux archives indisponible'}
+                                className={`h-2.5 w-2.5 rounded-full ${dataConnected
+                                    ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]'
+                                    : 'bg-red-500'
                                 }`}
-                            ></div>
+                            />
                         </div>
                     </div>
                 </div>
@@ -1699,6 +1850,12 @@ export default function App() {
                         onDelete={handleDelete}
                         onBack={() => setView('home')}
                         currentSeason={CURRENT_SEASON}
+                        isAdmin={isAdmin}
+                        adminEmail={user?.email}
+                        currentUserEmail={user?.email}
+                        adminConfigured={Boolean(ADMIN_EMAIL)}
+                        onAdminSignIn={handleAdminSignIn}
+                        onAdminSignOut={handleAdminSignOut}
                     />
                 )}
 
